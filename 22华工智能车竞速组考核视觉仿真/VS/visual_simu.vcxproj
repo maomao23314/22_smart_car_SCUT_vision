@@ -1,0 +1,189 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- ==========================================================================
+       22 届视觉仿真环境 —— Visual Studio 2022 工程
+
+       特点：
+         * C / C++ 混合编译：
+             code\*.c        -> 编译为 C    (/TC)
+             env\simu_env.c  -> 编译为 C    (/TC)
+             main.cpp        -> 编译为 C++  (/TP)
+             env\*.cpp       -> 编译为 C++  (/TP)
+         * code\ 下的 .c/.h 自动收集（两条保险）：
+             1) env\code_filelist.h 由 tools\gen_filelist.ps1 生成，
+                被 simu_env.c 包含 —— 这是真正让新文件进工程的方式。
+             2) 下面 <ClCompile Include="code\**\*.c"> 通配，
+                让新文件也出现在解决方案资源管理器里。
+         * 编码：/utf-8，源文件是 UTF-8 with BOM，中文不乱码。
+         * 链接器不需要手动加库：easyx.h 里有 #pragma comment(lib,...)
+
+       直接双击本目录下的 .sln 打开即可，不需要改任何项目属性。
+     ========================================================================== -->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{C919EE63-B52A-446E-A7B9-A4F8B8E45B41}</ProjectGuid>
+    <RootNamespace>visual_simu</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <!-- ======================= 公共编译/链接设置 ======================= -->
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <!-- /utf-8 : 源码是 UTF-8 with BOM，执行字符集也是 UTF-8，中文不会乱码 -->
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <!-- 头文件搜索路径：env\ 放环境头文件，code\ 放用户头文件。
+           注意工程文件在 VS\ 子目录里，所以要用 $(ProjectDir).. 回到工程根目录 -->
+      <AdditionalIncludeDirectories>$(ProjectDir)..\env;$(ProjectDir)..\code;$(ProjectDir)..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ConformanceMode>true</ConformanceMode>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <!-- C 用 C11，C++ 用 C++17 -->
+      <LanguageStandard_C>stdc11</LanguageStandard_C>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <!-- Console 子系统：允许 config.h 的 USE_CONSOLE=1 显示控制台，
+           并且 printf 的诊断信息能看到。EasyX 的图形窗口不受影响。 -->
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <!-- ======================= 源文件 ======================= -->
+  <!-- 说明：这里刻意不使用 ..\code\*.c 这种通配符。
+       通配符会让 VS 报「VC 项目不支持通配符」警告，并可能让 IDE 行为不稳定。
+       用户新增的 code\*.c 由 env\code_filelist.h 自动收集（见下方 DSH_GenFileList），
+       下面这几条只是为了把文件显示在解决方案资源管理器里。 -->
+  <!-- env\ 下的固定源文件写在这里，不放进下面自动生成的块。
+       原因：自动生成块由 tools\sync_vs_items.ps1 在构建过程中重写，
+       MSBuild 已经完成工程求值，新加进来的项当次构建看不到，
+       会导致「拉下代码后第一次 F5 链接失败」。env\ 文件数量固定，
+       直接写死最稳。 -->
+  <ItemGroup>
+    <ClCompile Include="..\env\hot_reload.c">
+      <CompileAs>CompileAsC</CompileAs>
+    </ClCompile>
+    <ClInclude Include="..\env\hot_reload.h" />
+  </ItemGroup>
+  <!-- ==== BEGIN AUTO-GENERATED ITEMS (tools\sync_vs_items.ps1) ==== -->
+  <ItemGroup>
+    <ClCompile Include="..\main.cpp" />
+    <ClCompile Include="..\env\disp_env.cpp" />
+    <ClCompile Include="..\env\simu_env.c">
+      <CompileAs>CompileAsC</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\code\camera.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <ExcludedFromBuild>true</ExcludedFromBuild>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\config.h" />
+    <ClInclude Include="..\env\disp_env.hpp" />
+    <ClInclude Include="..\env\simu_env.h" />
+    <ClInclude Include="..\env\scut_common_typedef.h" />
+    <ClInclude Include="..\env\scut_display.h" />
+    <ClInclude Include="..\env\code_filelist.h" />
+    <ClInclude Include="..\code\camera.h" />
+  </ItemGroup>
+  <!-- ==== END AUTO-GENERATED ITEMS ==== -->
+  <!-- ==========================================================================
+       关于「新建 code\*.c 自动进工程」：
+       env\code_filelist.h 由 tools\gen_filelist.ps1 生成，被 env\simu_env.c 包含。
+       下面的 DSH_GenFileList 目标在每次编译前重跑该脚本，
+       所以你在 VS 里新建 code\*.c 之后直接按 F5 就能编进去，不用手改工程。
+       ========================================================================== -->
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+  <!-- ==========================================================================
+       让「新建 code\*.c 自动进工程」在 VS 里真正生效。
+
+       关键点：MSBuild 的增量判断会跳过「没有输入变化」的目标，所以不能只靠
+       BeforeTargets="ClCompile"。这里挂在 PrepareForBuild 上，每次生成前
+       一定执行：重新扫描 code\ 目录更新 env\code_filelist.h；
+       若文件列表和上次不同，就删掉 simu_env.obj 强制重新编译
+       simu_env.c（它是包含所有 code\*.c 的那个编译单元）。
+       ========================================================================== -->
+  <PropertyGroup>
+    <DSH_Stamp>$(IntDir)dsh_filelist.stamp</DSH_Stamp>
+    <!-- VS 的「快速最新检查」会在工程看起来没变化时跳过整个生成过程，
+         那样下面的 DSH_GenFileList 就不会执行，新建的 code\*.c 也就不会被
+         发现。关掉它，保证每次生成都真正跑一遍（代价很小）。 -->
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+  </PropertyGroup>
+
+  <Target Name="DSH_GenFileList" BeforeTargets="PrepareForBuild"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\tools\gen_filelist.ps1&quot;"
+          ContinueOnError="true" />
+
+    <ItemGroup>
+      <_DSHCode Include="$(ProjectDir)..\code\*.c" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_DSHSnap>@(_DSHCode->'%(Filename)')</_DSHSnap>
+      <_DSHOld></_DSHOld>
+    </PropertyGroup>
+    <ReadLinesFromFile File="$(DSH_Stamp)" Condition="Exists('$(DSH_Stamp)')">
+      <Output TaskParameter="Lines" PropertyName="_DSHOld" />
+    </ReadLinesFromFile>
+    <Delete Files="$(IntDir)simu_env.obj" Condition="'$(_DSHOld)' != '$(_DSHSnap)'" />
+    <WriteLinesToFile File="$(DSH_Stamp)" Lines="$(_DSHSnap)" Overwrite="true" />
+  </Target>
+</Project>

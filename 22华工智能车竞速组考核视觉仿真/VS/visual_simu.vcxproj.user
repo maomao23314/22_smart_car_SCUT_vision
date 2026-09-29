@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ==========================================================================
+       VS 调试配置：让按 F5 运行时的工作目录 = 工程根目录
+
+       环境本身在启动时会自动把工作目录切到工程根目录（见 env\disp_env.cpp
+       里的 chdir_to_project_root），所以即使没有这个文件也能找到 pic\。
+       这里显式再设一次作为双保险，也方便你在 VS 里调试时直接用相对路径
+       访问其它资源。
+     ========================================================================== -->
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LocalDebuggerWorkingDirectory>$(ProjectDir)..</LocalDebuggerWorkingDirectory>
+    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LocalDebuggerWorkingDirectory>$(ProjectDir)..</LocalDebuggerWorkingDirectory>
+    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+  </PropertyGroup>
+</Project>
