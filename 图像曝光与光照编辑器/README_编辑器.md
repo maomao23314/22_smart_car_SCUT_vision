@@ -26,16 +26,28 @@
 
 ## 快速上手
 
-### 方式一：直接用 exe（推荐给不写 Python 的人）
+### 方式一：直接用 exe（推荐，不用装任何东西）
 
-| 版本 | 体积 | 启动 | 说明 |
+仓库里已经放好了**打包好的成品**：
+
+| 交付形态 | 怎么做 | 体积 | 启动 |
 |---|---|---|---|
-| One-file | 约 23 MB | 约 6 秒 | 只有一个 exe，拷走即用 |
-| One-folder | 约 58 MB | 约 1 秒 | 一个文件夹，启动快 |
+| **`单文件版\`** | 双击 `图像曝光与光照编辑器.exe` | 约 23 MB | 约 6 秒 |
+| **`文件夹版.zip`** | **解压后**双击里面的 exe | 约 24 MB（解压后 58 MB） | **约 1 秒** |
 
-两者功能完全一样。
+两者**功能完全一样**：
 
-### 方式二：跑源码
+- **单文件版** —— 就一个 exe，适合拷到 U 盘、发给别人
+- **文件夹版** —— 启动快得多，适合放在电脑上天天用
+
+> **为什么不自己编译？** 没必要。这两个已经是成品，拿到就能跑。
+> 只有你要改编辑器代码时才需要看方式二。
+>
+> **文件夹版为什么要压成 zip？** 解压后里面有 2001 个依赖文件
+> （dll 和 tcl 脚本）。直接放进仓库会让文件数暴涨、克隆变慢，
+> 压成一个包只占 1 个文件对象，不影响使用。
+
+### 方式二：跑源码（要改代码时用）
 
 需要 Python 3.8+：
 
@@ -45,6 +57,18 @@ python image_editor.py
 ```
 
 无其他依赖，全部是可自由使用的开源库。
+
+### 自己重新打包
+
+改完代码想重新生成 exe：
+
+```
+pyinstaller build_onefile.spec --distpath dist_onefile    # 单文件
+pyinstaller build_exe.spec     --distpath dist            # 文件夹
+```
+
+> **体积陷阱**：不要在 Anaconda 环境里打包。Anaconda 的 numpy 链接 Intel MKL，
+> 光数学内核就 600+ MB。用官方 PyPI 的 numpy 只有约 31 MB。
 
 ---
 
@@ -132,18 +156,6 @@ python selftest.py        # 单元测试（光照数学、命名、翻页）
 python test_link.py       # 联动端到端（需先编译仿真环境）
 python test_stress.py     # 压力测试（快速刷新 + 慢算法）
 ```
-
----
-
-## 打包
-
-```
-pyinstaller build_onefile.spec --distpath dist_onefile    # 单文件
-pyinstaller build_exe.spec     --distpath dist            # 文件夹
-```
-
-> **体积陷阱**：不要在 Anaconda 环境里打包。Anaconda 的 numpy 链接 Intel MKL，
-> 光数学内核就 600+ MB。用官方 PyPI 的 numpy 只有约 31 MB。
 
 ---
 

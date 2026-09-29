@@ -45,16 +45,23 @@ int  image_process(void)   // 每帧的图像处理主函数，环境自动调�
 | Visual Studio | 打开 `VS\visual_simu.sln`，按 `F5` |
 | 命令行 | 双击 `tools\build_dev.bat` 或 `tools\build_vs.bat` |
 
-### 4. 想造图的时候
+### 4. 想造图的时候（不用装任何东西）
 
-进 `图像曝光与光照编辑器\`，装好 Python 后：
+进 `图像曝光与光照编辑器\`，仓库里已经打包好了：
+
+| 交付形态 | 怎么做 | 体积 | 启动 |
+|---|---|---|---|
+| `单文件版\图像曝光与光照编辑器.exe` | 直接双击 | 约 23 MB | 约 6 秒 |
+| `文件夹版.zip` | **解压后**双击里面的 exe | 约 24 MB | **约 1 秒** |
+
+两者功能一样，前者方便拷走，后者启动快。
+
+只有你要**改编辑器代码**时才需要装 Python：
 
 ```
 pip install numpy pillow
 python image_editor.py
 ```
-
-或者直接用已打包好的 exe。
 
 ---
 

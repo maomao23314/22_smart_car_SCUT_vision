@@ -1,11 +1,16 @@
-# 22 届视觉组仿真环境 —— 新手上手指南
+﻿# 22 届视觉组仿真环境
 
 > 华南理工大学智能车队 22 届招新 · 竞速组视觉方向
-> 返回 [仓库总览](../README.md) ｜ 配套工具：[图像曝光与光照编辑器](../图像曝光与光照编辑器/README_编辑器.md)
 
-这个环境在电脑上模拟 MT9V03X 摄像头：**读一张图片 → 变成灰度数组给你 → 你写算法处理 → 环境把原图和处理结果并排显示出来，并把你想看的数据显示在下面。**
+**一句话**：在电脑上模拟 MT9V03X 摄像头，你写纯 C 算法处理灰度图，环境把原图和处理结果并排显示出来。
 
-你写的算法是**纯 C** 的，可以直接搬到 CH32V307 单片机上运行。
+**三件事记住就够了：**
+
+1. **跑起来** → 双击 `一键配置.bat`，然后按 `F11`（Dev-C++）或 `F5`（VS）
+2. **写代码** → 只改 `code\camera.c` 里的 `image_process()`，新增 `.c/.h` 不用改工程
+3. **看数据** → 输入是 `mt9v03x_image[120][188]`，用 `SCUT_DrawPoint/DrawLine` 画图，用 `SCUT_Log` 打数据
+
+算法是纯 C，**可直接搬到 CH32V307**。
 
 ---
 
@@ -40,7 +45,7 @@
 ## 二、项目结构
 
 ```
-22th_visual_simu\
+22华工智能车竞速组考核视觉仿真\
 │
 ├─ main.cpp                   程序入口 + 两个「接入函数」（你要改）
 ├─ config.h                   ★ 所有配置项都在这里（你要改）
@@ -165,6 +170,16 @@ SCUT_GetImageWidth();    SCUT_GetImageHeight();     // 输入图像尺寸
 SCUT_GetOutputWidth();   SCUT_GetOutputHeight();    // 输出图像尺寸
 ```
 
+### 耗时与刷新（细节见第六节）
+
+```c
+SCUT_EnableDrawTiming(1);       // 打开绘图计时
+SCUT_GetDrawCost();             // 上次 draw_image_info() 的花费（微秒）
+SCUT_GetFrameCost();            // 整帧耗时（微秒）
+
+SCUT_Flush(500);                // 立刻刷新到屏幕并停 500ms，用来看绘制顺序
+```
+
 ---
 
 ## 五、按键
@@ -184,7 +199,65 @@ SCUT_GetOutputWidth();   SCUT_GetOutputHeight();    // 输出图像尺寸
 
 ---
 
-## 六、配置文件 `config.h`
+## 六、三种耗时，别搞混（重要）
+
+窗口上那行字可能长这样：
+
+```
+处理时间: 12314.7 us   (绘图 1.8 us   整帧 13007.3 us)
+```
+
+这是**三个独立的量**：
+
+| 数字 | 含义 | 怎么来的 |
+|---|---|---|
+| **处理时间** | 你的 `image_process()` 耗时 | 环境自动计时并显示 ★ 这是你要关心的 |
+| **绘图** | `draw_image_info()` 耗时 | `SCUT_GetDrawCost()`，需先 `SCUT_EnableDrawTiming(1)` |
+| **整帧** | 处理 + 绘图 + 显示刷新 | `SCUT_GetFrameCost()` |
+
+### 为什么绘图不算进「处理时间」
+
+环境只在 `image_process()` 前后取时间戳，`draw_image_info()` 在它之后执行，**不在计时区间内**。
+
+这是**刻意的**：车载程序上没有"画点给屏幕看"这件事。如果把绘图算进去，你辛辛苦苦优化算法省下的 5 µs，会被画一条线就吃掉的 10 µs 淹没，性能数据就失真了。
+
+**但绘图仍然是真实的帧开销。** 实测：
+
+| | 耗时 |
+|---|---|
+| 一个简单算法 | 约 2 µs |
+| `SCUT_DrawPoint` × 1000 | **约 11 µs** |
+
+画得太多会明显拖低帧率。所以给了你单独的数字去看它。
+
+### 想观察绘制顺序？
+
+`draw_image_info()` 里画的东西默认**攒完一帧才一次性显示**，所以最终看到的是所有元素叠在一起，分不出先后。
+
+在两次绘制之间调用 **`SCUT_Flush(毫秒)`**，它会立刻把当前内容推上屏幕并停顿，于是能一眼看出哪些是先画的：
+
+```c
+for (y = 0; y < SCUT_IMAGE_H; y++) SCUT_DrawPoint(left_line[y], y, SCUT_COLOR_GREEN);
+SCUT_Flush(500);          // ← 绿线先显示，停 0.5 秒
+
+for (y = 0; y < SCUT_IMAGE_H; y++) SCUT_DrawPoint(right_line[y], y, SCUT_COLOR_BLUE);
+SCUT_Flush(500);          // ← 蓝线再显示
+
+SCUT_DrawRect(0, 0, 187, 119, SCUT_COLOR_RED);   // ← 红框最后显示
+```
+
+`SCUT_Flush` 的行为特性：
+
+| 特性 | 说明 |
+|---|---|
+| 生效位置 | **只在 `draw_image_info()` 里有意义**；在 `image_process()` 里调没效果（那时还没进显示阶段） |
+| 停顿参数 | `SCUT_Flush(0)` 只刷新不停顿，影响最小 |
+| 是否影响计时 | **不影响「处理时间」**，绘图/刷新都在计时区间外 |
+| 注意 | 每次调用都会立刻重画整幅图，别调太多次；正式测性能前记得去掉 |
+
+---
+
+## 七、配置文件 `config.h`
 
 分两区，**你只需要关心上半部分**：
 
@@ -202,7 +275,7 @@ SCUT_GetOutputWidth();   SCUT_GetOutputHeight();    // 输出图像尺寸
 
 ---
 
-## 七、热重载：与图像编辑器联动
+## 八、热重载：与图像编辑器联动
 
 调光照、调曝光这类工作，如果每次都要「编辑器里改 → 另存为 → 回环境按 `+` 翻页」会很烦。
 **热重载**让你省掉后面两步。
@@ -240,7 +313,7 @@ SCUT_GetOutputWidth();   SCUT_GetOutputHeight();    // 输出图像尺寸
 
 ---
 
-## 八、注意事项
+## 九、注意事项
 
 ### 编码问题（最容易踩的坑）
 
@@ -284,7 +357,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_mixed.ps1
 
 ---
 
-## 九、给 AI 的补充说明
+## 十、给 AI 的补充说明
 
 > 这一节是给「让 AI 帮忙改代码」时用的上下文，人类读者可以跳过。
 
@@ -329,7 +402,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_mixed.ps1
 
 ---
 
-## 十、常见问题
+## 十一、常见问题
 
 | 问题 | 解决办法 |
 |---|---|
