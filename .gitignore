@@ -49,11 +49,18 @@ Makefile.win
 __pycache__/
 *.py[cod]
 *.egg-info/
-.venv/
-venv/
-env/
 .pytest_cache/
 .mypy_cache/
+
+# Python 虚拟环境目录。
+# ★ 千万不要写成裸的 `env/` —— 那会匹配【任何层级】名叫 env 的目录，
+#   而仿真环境的核心源码目录正好就叫 env\（disp_env.cpp、scut_display.h
+#   等全在里面）。写裸 `env/` 会让整个环境本体推不进仓库，
+#   别人克隆下来根本编译不了。必须限定层级。
+/.venv/
+/venv/
+/图像曝光与光照编辑器/.venv/
+/图像曝光与光照编辑器/venv/
 
 # ---------------------------------------------------------------------------
 #  PyInstaller 打包产物
