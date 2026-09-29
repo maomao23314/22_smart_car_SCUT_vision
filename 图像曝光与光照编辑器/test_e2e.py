@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 端到端验证打包后的 exe：
   用 Windows 消息驱动真实交互 —— 载入图片、拖滑块、保存，
@@ -19,18 +19,44 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-EXE = os.path.join(HERE, "dist", "图像编辑器", "图像编辑器.exe")
+ROOT = os.path.dirname(HERE)
 
 print("=== 1. exe 存在性 ===")
-assert os.path.isfile(EXE), f"找不到 {EXE}"
-print(f"  OK {os.path.getsize(EXE)/1024:.0f} KB")
+# 打包产物不入库，所以这里可能不存在 —— 不存在就跳过第 1、3 步，
+# 只跑第 2 步的核心链路（那部分用源码即可验证）。
+EXE = ""
+for rel in (("dist_onefile", "图像曝光与光照编辑器.exe"),
+            ("dist", "图像曝光与光照编辑器", "图像曝光与光照编辑器.exe"),
+            ("dist_onefile", "图像编辑器.exe"),
+            ("dist", "图像编辑器", "图像编辑器.exe")):
+    p = os.path.join(HERE, *rel)
+    if os.path.isfile(p):
+        EXE = p
+        break
+
+if EXE:
+    print(f"  OK {os.path.getsize(EXE)/1024:.0f} KB  ({os.path.relpath(EXE, HERE)})")
+else:
+    print("  -- 未找到打包产物（已打包则忽略）；跳过第 3 步")
 
 print("=== 2. 打包环境能否跑核心链路（读图/处理/保存）===")
 # 优先用构建用的 venv（若已被清理，退回当前解释器）
-VENV_PY = r"D:\22车队管理\一轮考核\视觉组\_buildenv\Scripts\python.exe"
+VENV_PY = os.path.join(os.path.dirname(ROOT), "_buildenv", "Scripts", "python.exe")
 if not os.path.isfile(VENV_PY):
     VENV_PY = sys.executable
-    print(f"  (构建 venv 不存在，改用当前解释器)")
+    print("  (构建 venv 不存在，改用当前解释器)")
+
+# 自动定位一张测试图（仿真环境文件夹名可能被改）
+_src_img = ""
+for cand in ("22华工智能车竞速组考核视觉仿真", "22th_visual_simu"):
+    p = os.path.join(ROOT, cand, "pic", "1", "1.bmp")
+    if os.path.isfile(p):
+        _src_img = p
+        break
+if not _src_img:
+    print("FAIL: 找不到测试图 pic\\1\\1.bmp")
+    sys.exit(1)
+
 probe = os.path.join(HERE, "_e2e_probe.py")
 PROBE_SRC = '''# -*- coding: utf-8 -*-
 import sys, os, tempfile
@@ -39,7 +65,7 @@ import numpy as np
 from PIL import Image
 from image_editor import render, ImageEditor
 
-src_path = r"D:\\\\22车队管理\\\\一轮考核\\\\视觉组\\\\22th_visual_simu\\\\pic\\\\1\\\\1.bmp"
+src_path = SRCPATH
 img = np.asarray(Image.open(src_path), dtype=np.float32)
 print("  读图 OK", img.shape, img.dtype)
 
@@ -58,7 +84,7 @@ for fmt in (".bmp", ".png", ".jpg"):
 print("  自增命名 OK:", ed.next_name(d, "1", ".bmp"))
 '''
 open(probe, "w", encoding="utf-8").write(
-    PROBE_SRC.replace("HREF", repr(HERE)))
+    PROBE_SRC.replace("HREF", repr(HERE)).replace("SRCPATH", repr(_src_img)))
 r = subprocess.run([VENV_PY, probe], capture_output=True, text=True,
                    encoding="utf-8", errors="ignore")
 print(r.stdout or "", end="")
@@ -69,6 +95,12 @@ if r.returncode != 0:
 os.remove(probe)
 
 print("=== 3. exe 能启动并渲染界面 ===")
+if not EXE:
+    print("  跳过（未打包）。打包命令见 README_编辑器.md")
+    print()
+    print("RESULT: 核心链路通过（exe 部分已跳过）")
+    sys.exit(0)
+
 import ctypes
 from ctypes import wintypes
 from PIL import Image

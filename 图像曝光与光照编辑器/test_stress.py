@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 压力测试：模拟「编辑器疯狂刷新 + 算法很慢」的极端情况，
 确认仿真环境不会崩、不会卡死、不会漏掉最后一次更新。
@@ -22,9 +22,31 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-SIM_EXE = os.path.join(ROOT, "22th_visual_simu", "VS", "x64", "Release",
-                       "visual_simu.exe")
-TARGET = os.path.join(ROOT, "22th_visual_simu", "pic", "1", "1.bmp")
+
+# 自动定位仿真环境目录（文件夹名可能被改）
+SIM_DIR = ""
+for cand in ("22华工智能车竞速组考核视觉仿真", "22th_visual_simu"):
+    p = os.path.join(ROOT, cand)
+    if os.path.isdir(p):
+        SIM_DIR = p
+        break
+if not SIM_DIR:
+    print("FAIL: 找不到仿真环境文件夹")
+    sys.exit(1)
+
+
+def find_sim_exe():
+    for rel in (("VS", "x64", "Release", "visual_simu.exe"),
+                ("VS", "x64", "Debug", "visual_simu.exe"),
+                ("build", "visual_simu.exe")):
+        p = os.path.join(SIM_DIR, *rel)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+SIM_EXE = find_sim_exe()
+TARGET = os.path.join(SIM_DIR, "pic", "1", "1.bmp")
 
 sys.path.insert(0, HERE)
 from image_editor import render

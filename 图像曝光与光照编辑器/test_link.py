@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 端到端验证：图像编辑器 → 仿真环境 的热重载联动。
 
@@ -29,9 +29,36 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-SIM_EXE = os.path.join(ROOT, "22th_visual_simu", "VS", "x64", "Release",
-                       "visual_simu.exe")
-TARGET = os.path.join(ROOT, "22th_visual_simu", "pic", "1", "1.bmp")
+
+# 仿真环境文件夹名可能被改，这里自动找：
+#   仓库布局：<仓库根>\22华工智能车竞速组考核视觉仿真\
+#   开发布局：<上级>\22th_visual_simu\
+SIM_DIR = ""
+for cand in ("22华工智能车竞速组考核视觉仿真", "22th_visual_simu"):
+    p = os.path.join(ROOT, cand)
+    if os.path.isdir(p):
+        SIM_DIR = p
+        break
+
+if not SIM_DIR:
+    print("FAIL: 找不到仿真环境文件夹")
+    print("      期望其一: 22华工智能车竞速组考核视觉仿真 / 22th_visual_simu")
+    sys.exit(1)
+
+
+def find_sim_exe():
+    """两种工具链的输出位置都找一遍"""
+    for rel in (("VS", "x64", "Release", "visual_simu.exe"),
+                ("VS", "x64", "Debug", "visual_simu.exe"),
+                ("build", "visual_simu.exe")):
+        p = os.path.join(SIM_DIR, *rel)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+SIM_EXE = find_sim_exe()
+TARGET = os.path.join(SIM_DIR, "pic", "1", "1.bmp")
 
 sys.path.insert(0, HERE)
 from image_editor import render
@@ -112,8 +139,10 @@ print("=" * 60)
 print("联动测试：编辑器写图 -> 仿真环境自动重载")
 print("=" * 60)
 
-if not os.path.isfile(SIM_EXE):
-    print("FAIL: 找不到仿真环境 exe，先编译")
+if SIM_EXE is None:
+    print("FAIL: 找不到仿真环境 exe，请先编译：")
+    print("      进 22华工智能车竞速组考核视觉仿真\\，双击 一键配置.bat")
+    print("      或跑 tools\\build_dev.bat（输出到 build\\）")
     sys.exit(1)
 if not os.path.isfile(TARGET):
     print(f"FAIL: 找不到目标图 {TARGET}")
