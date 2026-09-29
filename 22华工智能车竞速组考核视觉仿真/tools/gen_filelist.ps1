@@ -113,6 +113,26 @@ if ($changed) {
     $utf8Bom = New-Object System.Text.UTF8Encoding($true)
     [System.IO.File]::WriteAllText($OutFile, $newText, $utf8Bom)
     Write-Host ("[gen_filelist] wrote env\code_filelist.h ({0} source file(s))" -f $cFiles.Count) -ForegroundColor Cyan
+
+    # --- force recompile of simu_env.c on the next Dev-C++ build ----------------
+    #     The Makefile.win that Dev-C++ generates lists simu_env.o's
+    #     dependencies as simu_env.c + simu_env.h only. code_filelist.h is
+    #     #included BY simu_env.c but is NOT in that dependency list, so when
+    #     the file list changes, Dev-C++ happily reuses the stale simu_env.o:
+    #     user code added to code\ silently never gets linked in, and the
+    #     symptom is confusing "undefined reference to image_process"-style
+    #     linker errors. Deleting the stale object forces a real rebuild.
+    #     (The VS project already handles this via its DSH_GenFileList target.)
+    $devBuildObjs = @(
+        (Join-Path $Root 'build\simu_env.o'),
+        (Join-Path $Root 'build\simu_env.obj')
+    )
+    foreach ($obj in $devBuildObjs) {
+        if (Test-Path $obj) {
+            Remove-Item $obj -Force
+            Write-Host ("[gen_filelist] deleted stale {0} (file list changed)" -f $obj) -ForegroundColor Yellow
+        }
+    }
 }
 else {
     Write-Host ("[gen_filelist] code_filelist.h up to date ({0} source file(s))" -f $cFiles.Count) -ForegroundColor Cyan

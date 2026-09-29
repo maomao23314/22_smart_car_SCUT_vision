@@ -1,4 +1,4 @@
-﻿/*===================================================================================================================
+/*===================================================================================================================
  *  华南理工大学  智能车队                                       SCUT Intelligent Vehicle Team
  *  ---------------------------------------------------------------------------------------------------------------
  *  22 届招新 · 竞速组视觉方向                         22nd Recruitment - Vision Group, Racing Division
@@ -23,6 +23,13 @@
 * 构建脚本会先跑 gen_filelist.ps1 再编译本文件；
 * VS 工程通过 PreBuildEvent 调用同一个脚本。
 *
+* ★ 这个文件【跟着仓库走】，不在 .gitignore 里！
+*   它缺失时 simu_env.o 会缺少用户算法的全部符号，
+*   链接时报一堆「undefined reference to image_process / left_line ...」，
+*   和真实原因（清单文件没生成）毫无关系，极难排查。
+*   所以正常情况下它应该在仓库里；万一被人删了，
+*   下面的 #error 会在编译期直接报人话错误，而不是等到链接期。
+*
 * 文件名称          simu_env
 * 适用平台          Windows 主机仿真（EasyX）
 *
@@ -39,7 +46,7 @@ uint8 mt9v03x_image[SCUT_IMAGE_H][SCUT_IMAGE_W];                                
 #  if __has_include("code_filelist.h")
 #    include "code_filelist.h"
 #  else
-#    warning "code_filelist.h 不存在：请先运行 tools\\gen_filelist.ps1"
+#    error "env\code_filelist.h 不存在：请运行一次 一键配置.bat 或 tools\gen_filelist.ps1 重新生成，然后重新编译。（没有它链接会报 undefined reference to image_process 之类）"
 #  endif
 #else
 #  include "code_filelist.h"

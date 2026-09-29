@@ -33,7 +33,12 @@ Makefile.win
 *.vsidx
 *.VC.db
 
-# ---- 环境自动生成的文件（每次编译会重新生成） ----
-env/code_filelist.h
+# ---- 环境自动生成的文件 ----
+# ★ env/code_filelist.h 【必须入库】，不要加进忽略规则！
+#   它不在仓库里的话，新下载的人第一次编译时它还不存在，
+#   simu_env.c 编出来缺少用户算法的全部符号，链接时报一串
+#   「undefined reference to image_init / image_process ...」，
+#   和真实原因毫无关系，新手没法排查。它只有十几行，入库成本为零。
+#   加了新 code\*.c 后跑 一键配置.bat 或 tools\gen_filelist.ps1 更新它。
 
 # pic\ 是测试图集，要跟着工程一起走，不要忽略
