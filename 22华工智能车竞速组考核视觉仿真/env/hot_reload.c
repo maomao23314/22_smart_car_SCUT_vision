@@ -144,13 +144,28 @@ static int hr_same(const hr_signature_t* a, const hr_signature_t* b)
 
 void SCUT_HotReloadInitEx(const char* file_path, int cooldown_ms)
 {
+    int written = 0;
+
     if (cooldown_ms <= 0) { cooldown_ms = SCUT_HOT_RELOAD_COOLDOWN_MS; }
     s_cooldown_ms = cooldown_ms;
 
     if (file_path == NULL) { s_path[0] = '\0'; }
     else
     {
-        snprintf(s_path, sizeof(s_path), "%s", file_path);
+        written = snprintf(s_path, sizeof(s_path), "%s", file_path);
+
+        /* ★ 路径被截断时必须放弃监测，不能将错就错。
+         *
+         * 载入图片那边用的是 1024 字节的缓冲（TO_TCHAR_BUF），
+         * 而 s_path 只有 MAX_PATH(260)。若路径长于 260：
+         *   读图成功，但这里存的是被截断的路径 -> hr_stat 永远失败
+         *   -> hr_same 永远为假 -> 每过一个冷却周期就返回一次「需要重载」，
+         *   变成 300ms 一次的无限重载循环，界面一直闪。
+         * 所以截断了就当「不监测」，宁可失去联动功能也不要卡死。 */
+        if (written < 0 || (size_t)written >= sizeof(s_path))
+        {
+            s_path[0] = '\0';
+        }
     }
 
     /* 切图时把基准设成「当前状态」，避免刚切过去就被判定为变化而重复重载 */

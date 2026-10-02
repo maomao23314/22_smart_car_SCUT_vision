@@ -53,5 +53,8 @@
     <ClInclude Include="..\code\camera.h">
       <Filter>code</Filter>
     </ClInclude>
+    <ClInclude Include="..\code\scut_port.h">
+      <Filter>code</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

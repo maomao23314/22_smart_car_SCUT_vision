@@ -50,6 +50,13 @@
 *              画框：SCUT_DrawRect(10, 10, 100, 60, SCUT_COLOR_BLUE);
 * 备注信息     坐标就是图像坐标 越界会自动忽略 不用自己判断
 *              颜色见 scut_common_typedef.h 里的 SCUT_COLOR_xxx
+*              （⚠ 不要手写十六进制颜色，宏内部是 COLORREF 排列；
+*                自定义颜色请用 SCUT_RGB(r, g, b)）
+*
+*              本示例画三条线，颜色分工：
+*                  绿 = 左边界 left_line
+*                  蓝 = 右边界 right_line
+*                  红 = 中线   mid_line
 *
 *              ★ 这里画的东西【不计入】「处理时间」那个数字。
 *                环境只在 image_process() 前后取时间戳，绘图在它之后，
@@ -71,10 +78,20 @@ void draw_image_info(void)
 {
     int y;
 
+    /* 三条线的颜色分工（坐标系就是图像坐标，越界自动忽略）：
+     *     左边界 left_line  -> 绿色
+     *     右边界 right_line -> 蓝色
+     *     中线   mid_line   -> 红色
+     *
+     * 注意：这里画的东西【不计入】「处理时间」，只算进「绘图」那项。
+     *       mid_line 是算法算出来的结果（camera.c 里计算），
+     *       但「把它画出来」属于显示，所以放在本函数而不是算法里
+     *       —— 这样 code\ 才能原样搬到没有屏幕的单片机上。 */
     for (y = 0; y < SCUT_IMAGE_H; y++)
     {
         SCUT_DrawPoint(left_line[y],  y, SCUT_COLOR_GREEN);
         SCUT_DrawPoint(right_line[y], y, SCUT_COLOR_BLUE);
+        SCUT_DrawPoint(mid_line[y],   y, SCUT_COLOR_RED);
     }
 }
 

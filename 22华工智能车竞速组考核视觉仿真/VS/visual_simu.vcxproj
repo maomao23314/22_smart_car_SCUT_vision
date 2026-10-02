@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <!-- ==========================================================================
        22 届视觉仿真环境 —— Visual Studio 2022 工程
 
@@ -47,7 +47,9 @@
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
-    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <!-- 全程序优化（LTCG）与「用户算法不优化」冲突，必须关掉：
+         开着它 /GL 会跨函数优化掉循环与中间量，测出的周期数就不可比了。 -->
+    <WholeProgramOptimization>false</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -94,9 +96,14 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <Optimization>MaxSpeed</Optimization>
-      <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <!-- ★ Release 也不优化用户算法，理由见 tools\build_dev.bat 里的说明：
+           窗口显示的是「处理时间」，若算法被优化（循环展开、中间量消除），
+           测出的周期数就不再反映代码真实开销，同一写法在不同优化等级下
+           能差好几倍，考核对比就失去意义。单片机上通常也不优化。
+           想测优化后的性能请另开配置，不要拿这里的数字去比。 -->
+      <Optimization>Disabled</Optimization>
+      <FunctionLevelLinking>false</FunctionLevelLinking>
+      <IntrinsicFunctions>false</IntrinsicFunctions>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
@@ -140,6 +147,7 @@
     <ClInclude Include="..\env\scut_display.h" />
     <ClInclude Include="..\env\code_filelist.h" />
     <ClInclude Include="..\code\camera.h" />
+    <ClInclude Include="..\code\scut_port.h" />
   </ItemGroup>
   <!-- ==== END AUTO-GENERATED ITEMS ==== -->
   <!-- ==========================================================================

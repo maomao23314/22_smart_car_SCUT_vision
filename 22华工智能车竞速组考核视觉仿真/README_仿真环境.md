@@ -10,7 +10,8 @@
 2. **写代码** → 只改 `code\camera.c` 里的 `image_process()`，新增 `.c/.h` 不用改工程
 3. **看数据** → 输入是 `mt9v03x_image[120][188]`，用 `SCUT_DrawPoint/DrawLine` 画图，用 `SCUT_Log` 打数据
 
-算法是纯 C，**可直接搬到 CH32V307**。
+算法是纯 C，**整个 `code\` 目录原样拷到 CH32V307 就能编译**（只依赖 `code\scut_port.h`，
+移植说明见第十节）。要显示的图像、尺寸、ROI 都在 `config.h` 里配，算法里不写死。
 
 ---
 
@@ -56,15 +57,16 @@
 │
 ├─ code\                      ★★ 你的代码就放这里 ★★
 │   ├─ camera.c               算法示例（大津法二值化 + 左右扫线）
-│   └─ camera.h               算法对外接口与全局变量声明
+│   ├─ camera.h               算法对外接口与全局变量声明
+│   └─ scut_port.h            ★ 单片机移植兼容层（整个 code\ 只依赖它）
 │
 ├─ env\                       环境本体（一般不用动）
 │   ├─ disp_env.hpp           环境对外接口声明
 │   ├─ disp_env.cpp           环境实现：窗口/图片/按键/缩放/计时/显示/日志
 │   ├─ scut_display.h         ★ 给你调用的接口（画图、打日志、查询）
 │   ├─ scut_common_typedef.h  公共类型与颜色定义（SCUT_COLOR_xxx）
-│   ├─ simu_env.h             输入图像数组的声明
-│   ├─ simu_env.c             输入图像数组的定义 + 自动收集 code\ 的挂载点
+│   ├─ simu_env.h             输入图像 + 输出图像数组的声明
+│   ├─ simu_env.c             输入/输出图像的定义 + 自动收集 code\ 的挂载点
 │   ├─ hot_reload.h/.c        热重载：监测当前图片是否被编辑器改写（见第七节）
 │   └─ code_filelist.h        自动生成，不要手动改
 │
@@ -82,12 +84,29 @@
 │   ├─ build_vs.bat           命令行编译运行（任意版本 VS）
 │   └─ verify_mixed.ps1       验证 C/C++ 混合编译是否正常
 │
-└─ pic\                       测试图集（1~6 组，共 91 张图）
+└─ pic\                       测试图集（1~6 组，共 120 张图）
 ```
 
 ---
 
 ## 三、你要写的代码在哪
+
+> ### ⚠️ 先记住一件事：`camera.c` 只是「Hello World」，不是答案
+>
+> `code\camera.c` 里那套**大津法 + 跳变扫线**只是为了演示接口怎么用：
+> 输入图从哪拿、结果写哪、怎么画线、怎么打日志。
+>
+> 它和真正能上赛道的视觉代码**差得很远**：
+>
+> - 没有处理十字、环岛、坡道、断路、虚线等特殊元素
+> - 没有边线滤波 / 补线 / 丢线保护，跳变点一多中线就乱跳
+> - 扫线只取第一个跳变点，遇到噪点、反光会直接跑偏
+> - 没有透视变换，也没按行加权，远端一点点误差会被放大
+> - 固定按整幅图处理，没有分区、没有动态阈值、没有置信度判断
+>
+> **把它当成「Hello World」，不是「参考答案」。**
+> 你需要自己设计算法，或者参考往届开源方案（逐飞、各路校赛开源库等）。
+> 我们评的是你的思路和实现，不是你有没有照抄这份示例。
 
 环境只认 **两个函数**，写在 `code\` 目录下：
 
@@ -126,18 +145,31 @@ mt9v03x_image[y][x]     // y = 行 0~119    x = 列 0~187    值 = 灰度 0~255
 > ⚠️ 这个数组是「摄像头」在写的。**处理前请先 `memcpy` 一份副本**，
 > 不要边读边改，否则会读到半新半旧的数据。`camera.c` 里有标准写法可以照抄。
 
-### 输出图像：在 `config.h` 里指定
+### 输出图像：在 `config.h` 里指定（不在 `code\` 里）
+
+**输出图像不由你的算法定义**，而是由 `config.h` 配置。算法只管用 `SCUT_OutImageSet()` 写结果：
 
 ```c
-#define SCUT_OUT_IMAGE_ARRAY   output_image   // 要显示的数组名（可以换成你的）
-#define SCUT_OUT_IMAGE_W       188            // 显示区域宽度
-#define SCUT_OUT_IMAGE_H       120            // 显示区域高度
-#define SCUT_OUT_IMAGE_X       0              // 显示起始列
-#define SCUT_OUT_IMAGE_Y       0              // 显示起始行
+/* ---- config.h 里这样配 ---- */
+#define SCUT_OUT_IMAGE_ARRAY      output_image   // 要显示的数组名（可以换成你的）
+#define SCUT_OUT_IMAGE_W          188            // 显示区域宽度
+#define SCUT_OUT_IMAGE_H          120            // 显示区域高度
+#define SCUT_OUT_IMAGE_X          0              // 显示起始列
+#define SCUT_OUT_IMAGE_Y          0              // 显示起始行
+
+/* ---- 你的算法里这样写 ---- */
+SCUT_OutImageSet(x, y, 255);        // 往输出图像写一个像素，自动处理 ROI 偏移
+uint8 v = SCUT_OutImageGet(x, y);   // 读回来
 ```
 
-在代码里直接写 `output_image[y][x] = ...` 即可。
-只想看一块 ROI 时，把 `W/H` 调小、`X/Y` 改成起点，窗口会自动跟着调整。
+坐标是**相对显示区域**的（0 ~ `SCUT_OUT_IMAGE_W-1`），越界自动忽略。
+
+想只看一块 ROI：把 `W/H` 调小、`X/Y` 改成起点，窗口会自动跟着调整，
+**算法代码一个字都不用改**。
+
+> 为什么输出不放 `code\` 里？因为 `code\` 要能直接拷到 CH32 车载工程。
+> 把「显示到哪个数组、显示多大」这类仿真环境的事写进算法，
+> 上车就要改代码。现在这些全在 `config.h`，算法保持干净。
 
 ### 绘图
 
@@ -148,7 +180,17 @@ SCUT_DrawRect(x0, y0, x1, y1, SCUT_COLOR_BLUE);       // 画矩形框
 ```
 
 坐标就是图像坐标，**越界会自动忽略**，不用自己判断。
-颜色见 `env\scut_common_typedef.h` 里的 `SCUT_COLOR_xxx`。
+
+颜色用 `SCUT_COLOR_xxx`，想自己配色用 `SCUT_RGB(r, g, b)`：
+
+```c
+SCUT_DrawPoint(10, 10, SCUT_RGB(0x66, 0xCC, 0xFF));   // 自定义颜色
+```
+
+> ⚠️ **不要手写十六进制颜色**。`SCUT_COLOR_xxx` 的内部排列是 Windows 的
+> `COLORREF`（`0x00BBGGRR`，蓝色在低位），不是直觉上的 `0xRRGGBB`。
+> 直接写 `0xFF0000` 得到的是**蓝色**而不是红色。
+> 用 `SCUT_RGB(255, 0, 0)` 或 `SCUT_COLOR_RED` 就永远是对的。
 
 ### 日志输出
 
@@ -193,7 +235,7 @@ SCUT_Flush(500);                // 立刻刷新到屏幕并停 500ms，用来看
 | `ESC` | 退出 |
 | 鼠标左键 | 在窗口**右上角**显示该点的灰度值（浅蓝色） |
 
-> 「处理时间」显示的是**平均每次**的微秒数，所以按 `R` 前后显示的数字可以直接对比。
+> 「处理时间」显示的是**平均每次**的结果，所以按 `R` 前后显示的数字可以直接对比。
 
 下方状态栏会显示 `[热重载 开 已刷新 N 次]`，可以据此确认联动是否在工作。
 
@@ -204,7 +246,7 @@ SCUT_Flush(500);                // 立刻刷新到屏幕并停 500ms，用来看
 窗口上那行字可能长这样：
 
 ```
-处理时间: 12314.7 us   (绘图 1.8 us   整帧 13007.3 us)
+处理时间: 41.35 M cycles  (12948.4 us @3194MHz)   (绘图 3.0 us   整帧 155306.9 us)
 ```
 
 这是**三个独立的量**：
@@ -215,11 +257,63 @@ SCUT_Flush(500);                // 立刻刷新到屏幕并停 500ms，用来看
 | **绘图** | `draw_image_info()` 耗时 | `SCUT_GetDrawCost()`，需先 `SCUT_EnableDrawTiming(1)` |
 | **整帧** | 处理 + 绘图 + 显示刷新 | `SCUT_GetFrameCost()` |
 
+### 「处理时间」为什么给两个数：M cycles 和 us
+
+| 看哪个 | 含义 | 什么时候用 |
+|---|---|---|
+| **M cycles**（百万 CPU 周期） | 算法消耗了多少个 CPU 时钟周期 | ★ **对比性能、和同学比、和上次比** |
+| **us**（微秒） | 墙上时间 | 判断**实时性够不够**（比如要跑满 100fps 就得 <10ms） |
+
+**为什么以周期数为主**：微秒会随电脑快慢变。同一份算法，
+在 3.2GHz 的机器上写 12.7ms，在 4.5GHz 的机器上可能只要 9ms ——
+数字不一样，但那不是算法变好了，只是电脑更快。
+
+**周期数则是算法自身的固有属性**：它数的是 CPU 时钟周期，
+与主频解耦（现代 CPU 的 invariant TSC 特性）。
+换电脑、开不开睿频、后台有没有别的程序，这个数字都基本不变。
+
+实测同一段固定工作量：
+
+| | 读数 |
+|---|---|
+| 微秒（墙上时间） | 3863.9 → 4681.0 us，**波动 21%** |
+| 周期数比值 | 3192.5，**恒定** |
+
+所以**要比较算法改进效果，请看 M cycles**。
+
+> **单位说明**：以百万（M）为单位，`41.35 M cycles` = 4135 万周期。
+> 数字不足 1 M 时会直接显示原始周期数（如 `12345 cycles`），
+> 避免出现 `0.00 M` 这种看起来像没干活的显示。
+
+> **注意**：周期数也不是物理常数。不同代、不同架构的 CPU
+> （缓存大小、乱序执行、分支预测能力不同）跑同一份 C 代码，
+> 周期数会**接近但不完全相同**。
+> 它比微秒客观得多，但**最公平的比较还是同一台机器上前后对比**。
+
+括号里的 `@3194MHz` 是本机自动标定出的 CPU 时钟频率，
+用于把周期数换算成微秒。这个值是自动测的，不用手填。
+
+**如果你的电脑不支持稳定周期计时**（很老的 CPU、部分虚拟机），
+程序会自动回退，只显示微秒，不会给出不可信的数字。
+
+### 「处理时间」是按不优化编译的
+
+`code\` 下的算法固定按 `-O0`（不优化）编译，三个工具链口径一致。
+
+为什么：如果算法被优化，编译器会做循环展开、把中间变量消除掉，
+测出的周期数就**不再反映你写的代码的真实开销** ——
+同一份写法在不同优化等级下能差好几倍。
+而且单片机上（CH32 车载工程）通常也是不优化或低优化的，
+仿真端按 `-O0` 才和上车后的表现接近。
+
+> 想测优化后的性能？那是另一件事，请另开 Release 配置专门测，
+> 不要拿这里的数字去和 `-O0` 的数字比。
+
 ### 为什么绘图不算进「处理时间」
 
 环境只在 `image_process()` 前后取时间戳，`draw_image_info()` 在它之后执行，**不在计时区间内**。
 
-这是**刻意的**：车载程序上没有"画点给屏幕看"这件事。如果把绘图算进去，你辛辛苦苦优化算法省下的 5 µs，会被画一条线就吃掉的 10 µs 淹没，性能数据就失真了。
+这是**刻意的**：车载程序上没有"画点给屏幕看"这件事。如果把绘图算进去，你辛辛苦苦优化算法省下的时间，会被画一条线就吃掉的开销淹没，性能数据就失真了。
 
 **但绘图仍然是真实的帧开销。** 实测：
 
@@ -262,16 +356,40 @@ SCUT_DrawRect(0, 0, 187, 119, SCUT_COLOR_RED);   // ← 红框最后显示
 分两区，**你只需要关心上半部分**：
 
 **用户配置区（可以随便改）**
-- 要显示的图像（数组名、宽高、ROI 起点）
+- **摄像头图像尺寸**（`SCUT_IMAGE_W` / `SCUT_IMAGE_H`）
+- **要显示的图像**（`SCUT_OUT_IMAGE_ARRAY` 数组名，以及 `W` / `H` / `X` / `Y`）
 - 测试图片路径与后缀
 - 每帧处理重复次数
 - 窗口位置与缩放系数
 - 日志最大行数
+- 热重载开关与冷却时间
 
 **环境底层参数（一般不用改）**
 - 是否保留控制台窗口
 
 每个配置项后面都有一句话说明，打开文件就能看懂。
+
+### 常见改法
+
+```c
+/* ① 只看图像下半部分（ROI）—— 算法代码不用动 */
+#define SCUT_OUT_IMAGE_W      188     // 宽度可以不变
+#define SCUT_OUT_IMAGE_H       60     // 只看 60 行高
+#define SCUT_OUT_IMAGE_X        0     // 从第 0 列开始
+#define SCUT_OUT_IMAGE_Y       60     // 从第 60 行开始
+
+/* ② 换个数组显示（比如你想看中间结果而不是最终结果） */
+#define SCUT_OUT_IMAGE_ARRAY   binary_image
+#define SCUT_OUT_IMAGE_ARRAY_TYPE  uint8
+
+/* ③ 换摄像头分辨率（记得测试图也要同尺寸） */
+#define SCUT_IMAGE_W          160
+#define SCUT_IMAGE_H          120
+```
+
+> ⚠️ 改 `SCUT_OUT_IMAGE_*` 时注意 `X + W` 不能超过 `SCUT_IMAGE_W`，
+> `Y + H` 不能超过 `SCUT_IMAGE_H`。超了会在**编译期**直接报错
+> （环境放了静态断言），不会等到运行时才出问题。
 
 ---
 
@@ -342,6 +460,70 @@ SCUT_DrawRect(0, 0, 187, 119, SCUT_COLOR_RED);   // ← 红框最后显示
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_mixed.ps1
 ```
 
+---
+
+## 十、搬到 CH32 单片机（重要）
+
+### 设计目标：`code\` 原样拷贝就能编译
+
+整个 `code\` 目录**只依赖一份头文件** `code\scut_port.h`，
+不包含仿真环境的任何其他头文件（`scut_display.h` / `simu_env.h` / `config.h` 都不碰）。
+
+所以上车时：
+
+```
+把 code\ 整个目录拷到你的 CH32 工程里  →  直接编译  →  完成
+```
+
+**不需要改算法代码的任何一行。**
+
+### 移植时你要做的只有一件事：提供 `scut_port.h` 里那几个实现
+
+`scut_port.h` 声明了下面这些「环境侧」的东西，车载工程里给一份实现就行：
+
+| 声明的符号 | 仿真环境里的实现 | 车载工程里怎么做 |
+|---|---|---|
+| `mt9v03x_image[120][188]` | 环境读 BMP 填进去 | 指向摄像头驱动的图像数组（逐飞库通常同名） |
+| `SCUT_OutImageSet/Get` | 写显示缓冲 | 写 IPS 屏显存，或写你自己的图像数组 |
+| `SCUT_DrawPoint/DrawLine/DrawRect` | EasyX 画到窗口 | 画到 IPS 屏；**不需要就直接删掉这些调用** |
+| `SCUT_Log/LogAt/LogClear` | 显示在窗口下方 | 接串口打印；不需要就直接删掉 |
+
+最省事的做法：在车载工程里新建一个 `scut_port_mcu.c`，把这几个函数写成空函数，
+先把算法跑起来，之后再逐个接到真实的屏幕 / 串口上。
+
+### 如果车载工程已经有同名类型或颜色宏
+
+`scut_port.h` 已经预留了开关，在你的工程里提前定义即可跳过对应的定义段：
+
+```c
+#define SCUT_PORT_HAS_TYPES     // 你已经有 uint8/int16 等类型（逐飞库就有）
+#define SCUT_PORT_HAS_COLORS    // 你已经有 SCUT_COLOR_xxx
+#define SCUT_PORT_HAS_LOGLEVEL  // 你已经有 scut_log_level_enum
+```
+
+> 注意：单片机（IPS 屏）的颜色通常是 **RGB565**，和仿真环境的 `COLORREF` 排列不同。
+> 如果你要用屏自带的颜色宏，就定义 `SCUT_PORT_HAS_COLORS`，
+> 让车载工程的颜色定义生效，两边不要混用。
+
+### 在仿真环境里它自己是怎么工作的
+
+仿真环境会把 `code\*.c` 全部 `#include` 进 `env\simu_env.c` 这一个编译单元。
+此时 `scut_port.h` 会发现环境侧的 `scut_display.h` 已经在场，
+于是自动跳过自己那份定义，直接用环境的 —— 两边不会重复定义。
+
+这个判断就是 `scut_port.h` 里的 `SCUT_PORT_STANDALONE` 宏，你不用管它。
+
+### 验证移植是否真的没问题
+
+仓库里可以直接验证「`code\` 单独拿去能不能编」：
+
+```powershell
+# 只拷 code\ 下的文件（不带 env\），用 gcc 以 C11 编译
+gcc -std=c11 -Wall -Wextra -I code -c code\camera.c -o build\camera.o
+```
+
+能编过（且无警告）就说明算法侧是干净的。
+
 ### 图片没显示出来？
 
 - 窗口里出现一张**渐变图** = 图片读取失败，检查 `config.h` 里的 `SCUT_PIC_DIR` / `SCUT_PIC_EXT`
@@ -357,7 +539,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_mixed.ps1
 
 ---
 
-## 十、给 AI 的补充说明
+## 十一、给 AI 的补充说明
 
 > 这一节是给「让 AI 帮忙改代码」时用的上下文，人类读者可以跳过。
 
@@ -366,14 +548,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_mixed.ps1
 **工程约束**
 1. `code\` 下的文件是**纯 C**（C11），不得引入 C++ 语法或图形库依赖。
    环境侧用 `extern "C"` 导出接口，C 文件调用它们和调普通 C 函数一样。
-2. 用户代码**只能**通过 `env\scut_display.h` 暴露的接口与外界交互：
+2. `code\` 下的文件**只能** `#include "scut_port.h"` 这一个头文件，
+   不得包含 `scut_display.h` / `simu_env.h` / `config.h` 等环境头文件 ——
+   否则代码就没法直接搬到单片机。这是硬约束，改代码时务必守住。
+3. `code\` 里可用的接口全部在 `code\scut_port.h` 里声明：
    `SCUT_DrawPoint/DrawLine/DrawRect`、`SCUT_Log/SCUT_LogAt/SCUT_LogClear`、
-   `SCUT_Get*Width/Height`。不要直接调用 EasyX 的 `putpixel` / `outtextxy` 等。
-3. 输入**只有** `mt9v03x_image[120][188]`；输出图像由 `config.h` 的
-   `SCUT_OUT_IMAGE_ARRAY` / `W` / `H` / `X` / `Y` 决定。
-4. 新增 `.c` / `.h` 放在 `code\` 下即可，由 `env\code_filelist.h`
-   自动收集进 `simu_env.c` 编译单元，**不需要修改任何工程文件**。
-   若手工往 VS 工程里加文件，请重新生成一次以同步列表。
+   `SCUT_Get*Width/Height`、`SCUT_OutImageSet/Get`。
+   不要直接调用 EasyX 的 `putpixel` / `outtextxy` 等。
+4. 输入**只有** `mt9v03x_image[SCUT_IMAGE_H][SCUT_IMAGE_W]`；
+   输出用 `SCUT_OutImageSet(x, y, v)` 写，具体是哪个数组由 `config.h` 的
+   `SCUT_OUT_IMAGE_ARRAY` / `W` / `H` / `X` / `Y` 决定，**算法不要硬编码尺寸**。
+5. 颜色只能用 `SCUT_COLOR_xxx` 或 `SCUT_RGB(r,g,b)`，
+   **不要手写十六进制**（宏内部是 `COLORREF` 的 `0x00BBGGRR` 排列，
+   手写 `0xFF0000` 会得到蓝色）。
+6. 新增 `.c` / `.h` 放在 `code\` 下即可，由 `env\code_filelist.h`
+   自动收集进 `simu_env.c` 编译单元，**不需要修改任何工程文件**
+   （`gen_filelist.ps1` 会自动同步 `.dev` 与 VS 工程的文件列表）。
 
 **编码约定**
 - 源文件一律 `UTF-8 with BOM`。
@@ -395,14 +585,108 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_mixed.ps1
   否则 VS 会跳过整个生成过程，导致 `DSH_GenFileList` 目标不执行、
   新建的 `code\*.c` 不被收录。**不要删掉这个设置。**
 
+**踩过的坑（改代码前务必先读，能省很多时间）**
+
+1. **颜色宏必须是 `COLORREF` 排列，不能再改回 `0xRRGGBB`。**
+   EasyX/Windows 的缓冲是 `0x00BBGGRR`（蓝色在低位）。
+   早期版本把 `SCUT_COLOR_RED` 写成 `0xFF0000`，然后在
+   `disp_env.cpp` 里套一层 `BGR()` 把通道换回来 —— 等于错两次凑成对：
+   画点看着是红的，但任何人把颜色宏传给 `settextcolor` / `RGB` 等
+   Windows 接口，就会静默变成蓝色。
+   现在宏与 `RGB(r,g,b)` **逐位等价**，`put_pixel_proc` **直接赋值、不做任何交换**。
+   如果哪天发现颜色又反了，先检查是不是又有人加了一次通道交换。
+
+2. **`SCUT_IMAGE_W/H` 由 `config.h` 定义，`scut_display.h` 里只是 `#ifndef` 兜底。**
+   算法侧（`code\`）用 `scut_port.h` 的兜底默认值，所以
+   **`code\` 不包含 `config.h` 也能编过**，但此时拿到的是默认 188x120。
+   真正的定义只在 `config.h` 一处，别在别处再定义一遍。
+
+3. **`code\` 里绝对不能出现仿真环境的头文件。**
+   判断方法：`scut_port.h` 用 `SCUT_PORT_STANDALONE` 宏探测
+   `_scut_display_h_` / `_scut_common_typedef_h_` 是否已被包含。
+   在仿真环境里这两个宏必然存在（`simu_env.c` 先包含了 `simu_env.h`），
+   于是 `scut_port.h` 整段跳过自己的类型/颜色/日志定义，避免重复定义；
+   单独拷到单片机时它们不存在，`scut_port.h` 就成为唯一来源。
+   **改动包含顺序时要特别小心**：一旦这个探测失效，症状是
+   「`redefinition of 'scut_log_level_enum'`」或反过来一片
+   「undefined identifier」，两种方向都可能出现。
+
+4. **输出图像的「定义」在 `env\simu_env.c`，不在 `code\`。**
+   早期版本把 `output_image` 定义在 `camera.c` 里，还带一个
+   `SCUT_OUT_IMAGE_PTR` —— 那等于把显示逻辑塞进用户算法，
+   拷到单片机就编不过。现在算法只用 `SCUT_OutImageSet/Get`。
+   如果你要给输出加新能力（比如换元素类型），改 `config.h` 的
+   `SCUT_OUT_IMAGE_ARRAY_TYPE` + `simu_env.h` 的 `scut_out_pixel_t` typedef，
+   **不要**去 `code\` 里加。
+
+5. **算法中间结果要用自己的缓冲，不要「边算边改输出图像」。**
+   旧 `camera.c` 先把输入拷进 `output_image` 再原地二值化、扫线，
+   导致算法逻辑依赖「输出图像」这个显示概念。现在中间结果放
+   `frame_buf` / `bin_buf`，最后一步才写输出。
+   这样扫描类算法才能在单片机（没有屏幕）上独立运行。
+
+6. **源文件编码要盯住。**
+   git 里存的是 UTF-16 LE，但工作区是 UTF-8(+BOM)。
+   用脚本批量改文件时**千万不要**用 PowerShell 的
+   `Set-Content -Encoding utf8` 去「还原」一个 UTF-8 文件 ——
+   它会按 GBK 读进来再重新编码，中文全部变乱码且**不可逆**。
+   改这些文件请用编辑工具直接写，或显式用
+   `[System.IO.File]::WriteAllText(path, text, UTF8Encoding($true))`。
+
+7. **画线顺序会影响可见性。**
+   `draw_image_info()` 画的东西会覆盖在 `image_process()` 写出的
+   二值图像之上。实测把中线（红）放在左右边界（绿/蓝）**之后**画，
+   三条线才都看得见。
+
+8. **ROI 的行步长是 `SCUT_IMAGE_W`，不是 `SCUT_OUT_IMAGE_W`。**
+   输出数组是 `[SCUT_IMAGE_H][SCUT_IMAGE_W]` 的完整二维数组，
+   ROI 只是它上面的一块「窗口」，**行与行之间不连续**。
+   把 ROI 指针声明成 `(*)[SCUT_OUT_IMAGE_W]` 会算错行步长：
+   实测 188 宽取 ROI 宽 100 时，写 `(0,1)` 会落到第 0 行第 110 列，
+   而不是第 1 行第 0 列 —— 显示错位，写入越界（但可能不崩，更难查）。
+   **正确做法**：用 `SCUT_OutImageRow(y)` 逐行取，或
+   `base + y * SCUT_IMAGE_W + x` 手动算。`env\disp_env.cpp` 的
+   `refresh_proc_image()` 就是这么做的。
+
+9. **不要写 `sizeof(mt9v03x_image)`。**
+   `scut_port.h` 明确允许移植时把 `mt9v03x_image` 换成车载工程的数组，
+   那边可能声明成指针。一旦是指针，`sizeof` 变成 4/8 字节，
+   `memcpy` 静默失效、算法一直算旧数据且不报错。
+   请用 `SCUT_IMAGE_W * SCUT_IMAGE_H` 显式算字节数。
+
+10. **日志采样行不要写死下标。**
+    `config.h` 里 `SCUT_IMAGE_H` 可以改。历史上 `camera.c` 写死了
+    `mid_line[90]`，一旦把高度改到 ≤ 90 就是每帧越界读。
+    现在用 `SCUT_IMAGE_H / 2`，任何分辨率都安全。
+
+11. **窗口高度只能变大，不能变小。**
+    `SCUT_Log` 在日志变多时会自己 `initgraph` 把窗口加高。
+    如果 `rebuild_window()` 按较小的公式重算高度，就会把窗口缩回去
+    → 日志被裁掉 → `SCUT_Log` 再加高 → **窗口来回跳**。
+    历史上 `rebuild_window` 只预留 `min(SCUT_LOG_MAX_LINES, 12)` 行，
+    而 `SCUT_Log` 能涨到 40 行，差 580px，实测会明显闪。
+    现在两边都按 `SCUT_LOG_MAX_LINES` 全额算，且 `rebuild_window`
+    里加了「高度不允许变小」的保护。**改这两个公式时务必保持同步。**
+
+12. **热重载的路径缓冲是 `MAX_PATH`（260）。**
+    读图那边用的是 1024 字节缓冲。路径长于 260 时读图会成功，
+    但监测的路径被截断 → 文件属性查询永远失败 → 每过一个冷却周期
+    就报一次「需要重载」，变成 300ms 的无限重载循环。
+    现已在 `SCUT_HotReloadInitEx` 里检测 `snprintf` 截断，
+    截断时直接放弃监测（宁可没有联动，也不要卡死）。
+
 **验证方式**
 - 改完建议跑 `tools\verify_mixed.ps1`（应输出 8 项 PASS）。
 - 两个工具链都要能编过：
   `tools\build_dev.bat norun` 和 `tools\build_vs.bat norun`。
+- 改过 `code\` 后，验证「还能不能上单片机」：
+  把 `code\` 单独拷到一个临时目录，用
+  `gcc -std=c11 -Wall -Wextra -I <临时目录> -c camera.c`
+  编译，应该**零警告**通过（此时没有 `config.h`，走的是默认尺寸）。
 
 ---
 
-## 十一、常见问题
+## 十二、常见问题
 
 | 问题 | 解决办法 |
 |---|---|
@@ -410,6 +694,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_mixed.ps1
 | 中文显示成乱码 | 源文件必须 `UTF-8 with BOM`，不要存成 ANSI |
 | 找不到 `easyx.h` | 装 EasyX（见第七节） |
 | 自己加的 `.c` 没被编译 | 跑一次 `一键配置.bat`；文件名不要以 `_` 开头 |
+| **画出来颜色不对（红蓝反了）** | 别手写十六进制颜色，用 `SCUT_COLOR_xxx` 或 `SCUT_RGB(r,g,b)`。见第四节「绘图」的说明 |
+| **改了输出尺寸/ROI，算法读不到图** | 输出用 `SCUT_OutImageSet/Get`，坐标相对显示区域；不要直接用 `output_image[y][x]` |
+| **编译报 `scut_out_roi_check` 负数组** | `X + W` 超过 `SCUT_IMAGE_W`，或 `Y + H` 超过 `SCUT_IMAGE_H`，改 `config.h` |
+| **拷到单片机编译不过** | `code\` 里只应 `#include "scut_port.h"`；若还包含了 `scut_display.h` / `config.h` 就是违规了。见第十节 |
 | Dev-C++ 打开后项目列表是空的 | `.dev` 必须保持 **GBK 编码 + CRLF 换行**，别用编辑器存成 UTF-8 |
 | 日志太多挡住帮助信息 | 不会，窗口会自动变高；想限制行数改 `SCUT_LOG_MAX_LINES` |
 | VS 提示「VC 项目不支持通配符」 | 已经修掉了。若你自己加了通配符请改回具体文件列表 |

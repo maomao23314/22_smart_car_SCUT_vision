@@ -38,12 +38,58 @@
 
 #include "scut_common_typedef.h"
 #include "scut_display.h"
+#include "config.h"                                                             /* SCUT_OUT_IMAGE_W / H / X / Y */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 extern uint8 mt9v03x_image[SCUT_IMAGE_H][SCUT_IMAGE_W];                         // 模拟摄像头图像 输入的唯一来源
+
+/*-------------------------------------------------------------------------------------------------------------------
+* 输出图像（由 config.h 配置，定义在 simu_env.c）
+*
+*   SCUT_OUT_IMAGE_ARRAY    实际数组，尺寸是整幅图 SCUT_IMAGE_H x SCUT_IMAGE_W
+*   SCUT_OutImageRow(y)     取 ROI 第 y 行的行首指针（行步长 = SCUT_IMAGE_W）
+*
+* 元素类型由 config.h 的 SCUT_OUT_IMAGE_ARRAY_TYPE 决定（灰度图 = uint8）。
+*
+* ★ 算法不要直接用这两个符号 —— 用 SCUT_OutImageSet / Get 更好，
+*   因为那两个已经带好 ROI 偏移，而且移植到单片机时只需换实现。
+*
+* ★ 显示层取图请用 SCUT_OutImageRow()，不要自己写二维指针。
+*   原因见 simu_env.c 里的说明：把 ROI 指针声明成 (*)[SCUT_OUT_IMAGE_W]
+*   会在 SCUT_OUT_IMAGE_W != SCUT_IMAGE_W 时算错行步长（越界写坏内存）。
+*-----------------------------------------------------------------------------------------------------------------*/
+typedef SCUT_OUT_IMAGE_ARRAY_TYPE scut_out_pixel_t;                             // 输出图像像素类型
+
+extern scut_out_pixel_t SCUT_OUT_IMAGE_ARRAY[SCUT_IMAGE_H][SCUT_IMAGE_W];      // 输出图像数组
+
+/*-------------------------------------------------------------------------------------------------------------------
+* 函数简介     SCUT_OutImageRow 取输出图像 ROI 第 y 行的行首指针
+* 参数说明     y               行号 0 ~ SCUT_OUT_IMAGE_H-1
+* 返回参数     该行行首指针 越界返回 NULL
+* 使用示例     p = SCUT_OutImageRow(y);  p[x] 就是 ROI 上 (x,y) 的像素
+* 备注信息     行步长是真实的 SCUT_IMAGE_W，所以 ROI 与逐行推进都正确
+*-----------------------------------------------------------------------------------------------------------------*/
+scut_out_pixel_t* SCUT_OutImageRow       (int y);
+
+/*-------------------------------------------------------------------------------------------------------------------
+* 函数简介     SCUT_OutImageSet 往输出图像的 ROI 上写一个像素
+* 参数说明     x y             坐标（相对 ROI 左上角）越界自动忽略
+* 参数说明     value           灰度值
+* 返回参数     void
+* 备注信息     算法用它写结果，就不用关心 SCUT_OUT_IMAGE_X / Y 的偏移
+*-----------------------------------------------------------------------------------------------------------------*/
+void  SCUT_OutImageSet                  (int x, int y, uint8 value);
+
+/*-------------------------------------------------------------------------------------------------------------------
+* 函数简介     SCUT_OutImageGet 读输出图像 ROI 上某个像素
+* 参数说明     x y             坐标 越界返回 0
+* 返回参数     灰度值
+* 备注信息
+*-----------------------------------------------------------------------------------------------------------------*/
+uint8 SCUT_OutImageGet                  (int x, int y);
 
 #ifdef __cplusplus
 }

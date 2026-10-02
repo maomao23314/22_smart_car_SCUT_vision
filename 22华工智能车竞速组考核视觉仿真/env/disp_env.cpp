@@ -61,6 +61,11 @@
 static const TCHAR* to_tchar(const char* text, TCHAR* buf, size_t buf_count)
 {
 #if defined(_MSC_VER) && defined(UNICODE)
+    /* ★ 先给缓冲一个确定的空串。
+     * MultiByteToWideChar 失败时不会碰输出缓冲，若不预置，
+     * outtextxy 就会去读一个未初始化的栈数组（内容随机，可能没有结尾 0），
+     * 表现为偶发乱码甚至越界读。预置成空串后失败顶多是什么都不显示。 */
+    if (buf_count > 0) { buf[0] = _T('\0'); }
     MultiByteToWideChar(CP_UTF8, 0, text, -1, buf, (int)buf_count);
 #else
     (void)buf_count;
@@ -81,6 +86,7 @@ static const TCHAR* to_tchar(const char* text, TCHAR* buf, size_t buf_count)
 static const TCHAR* path_to_tchar(const char* text, TCHAR* buf, size_t buf_count)
 {
 #if defined(_MSC_VER) && defined(UNICODE)
+    if (buf_count > 0) { buf[0] = _T('\0'); }
     MultiByteToWideChar(CP_ACP, 0, text, -1, buf, (int)buf_count);
 #else
     (void)buf_count;
@@ -113,6 +119,131 @@ static void text_out(int x, int y, const char* text)
 #define HELP_LINE_H                 (20)                                        // 帮助信息行高
 #define PIXEL_BOX_W                 (200)                                       // 右上角灰度值显示区宽度
 #define PIXEL_BOX_H                 (24)                                        // 右上角灰度值显示区高度
+
+/*********************************************************************************************************************
+* CPU 周期计时（TSC）
+*
+* ★ 为什么需要它：
+*   QueryPerformanceCounter 测的是【墙上时间】(微秒)，会随 CPU 主频、睿频状态、
+*   系统负载而变。同一份算法在快电脑上数字小、慢电脑上数字大，
+*   拿来做考核对比并不公平。
+*
+*   TSC（Time Stamp Counter）数的是【CPU 时钟周期】，它与主频解耦
+*   （Intel/AMD 的 invariant TSC，CPUID 80000007H:EDX bit8 置位），
+*   因此「这份算法跑了多少周期」是算法自身的固有属性，比微秒客观得多。
+*
+*   实测（本机）：同一段固定工作量
+*       QPC 微秒 : 3863.9 → 4681.0 us   （跳 21%）
+*       TSC 周期 : 比值恒定 3192.5
+*
+* ★ 自动回退：
+*   老 CPU 与部分虚拟机没有稳定的 TSC（主频一变计数速率就变），
+*   此时结果不可信。所以启动时探测一次 invariant TSC 标志：
+*       支持 → 显示 cycles + 等效微秒
+*       不支持 → 只显示微秒，并提示本机不支持周期计时
+*
+* ★ 注意：TSC 是 x86/x64 专有指令，CH32V307(RISC-V) 上没有对应物。
+*   所以这段代码只在 env\ 里（宿主仿真），【不会】进 code\ 的算法，
+*   算法搬到单片机时完全不受影响。
+********************************************************************************************************************/
+#if defined(_M_X64) || defined(__x86_64__) || defined(_M_IX86) || defined(__i386__)
+#define SCUT_HAS_TSC                    (1)
+#include <intrin.h>
+#else
+#define SCUT_HAS_TSC                    (0)
+#endif
+
+static int                s_tsc_usable  = 0;                                    // 本机是否可用 TSC（探测后置 1）
+static double             s_tsc_mhz     = 0.0;                                  // TSC 频率（MHz），启动时标定
+static unsigned long long s_last_cycles = 0;                                    // 上次 image_process 的周期数（单次平均）
+
+/*-------------------------------------------------------------------------------------------------------------------
+* 函数简介     读一次 TSC
+* 参数说明     void
+* 返回参数     当前周期计数（没有 TSC 时返回 0）
+* 备注信息     用 __rdtsc() 而不是内联汇编，MSVC/GCC 都支持
+*-----------------------------------------------------------------------------------------------------------------*/
+static unsigned long long tsc_read(void)
+{
+#if SCUT_HAS_TSC
+    return __rdtsc();
+#else
+    return 0ULL;
+#endif
+}
+
+/*-------------------------------------------------------------------------------------------------------------------
+* 函数简介     探测本机是否支持稳定的 TSC
+* 参数说明     void
+* 返回参数     void
+* 备注信息     CPUID 0x80000007H 的 EDX bit8 = InvariantTSC
+*-----------------------------------------------------------------------------------------------------------------*/
+static void tsc_detect(void)
+{
+#if SCUT_HAS_TSC
+    int info[4] = {0, 0, 0, 0};
+
+    s_tsc_usable = 0;
+    s_tsc_mhz    = 0.0;
+
+    __cpuid(info, 0x80000000);
+    if ((unsigned int)info[0] < 0x80000007u) { return; }   /* 没有该叶子，无法判断 */
+
+    __cpuid(info, 0x80000007);
+    if ((((unsigned int)info[3]) >> 8) & 1u)
+    {
+        __cpuid(info, 0);
+        if (info[0] >= 1)
+        {
+            int f1[4] = {0, 0, 0, 0};
+            __cpuid(f1, 1);
+            if ((((unsigned int)f1[3]) >> 4) & 1u) { s_tsc_usable = 1; }   /* TSC 指令存在 */
+        }
+    }
+#else
+    s_tsc_usable = 0;
+#endif
+}
+
+/*-------------------------------------------------------------------------------------------------------------------
+* 函数简介     标定 TSC 频率（只做一次）
+* 参数说明     void
+* 返回参数     void
+* 备注信息     用 QueryPerformanceCounter 量一小段时间内的周期增量，算出 MHz。
+*              标定只需 ~20ms，且只跑一次，对启动速度没有影响。
+*-----------------------------------------------------------------------------------------------------------------*/
+static void tsc_calibrate(void)
+{
+    LARGE_INTEGER freq, t0, t1;
+    unsigned long long c0, c1;
+    double sec;
+
+    if (!s_tsc_usable) { return; }
+
+    QueryPerformanceFrequency(&freq);
+
+    QueryPerformanceCounter(&t0);
+    c0 = tsc_read();
+    for (;;)
+    {
+        QueryPerformanceCounter(&t1);
+        if ((double)(t1.QuadPart - t0.QuadPart) / (double)freq.QuadPart > 0.02) { break; }
+    }
+    c1 = tsc_read();
+
+    sec = (double)(t1.QuadPart - t0.QuadPart) / (double)freq.QuadPart;
+    if (sec > 0.0 && c1 > c0)
+    {
+        s_tsc_mhz = (double)(c1 - c0) / sec / 1e6;
+    }
+
+    /* 标定结果离谱就当不支持，免得显示错误的周期数 */
+    if (s_tsc_mhz < 100.0 || s_tsc_mhz > 20000.0)
+    {
+        s_tsc_usable = 0;
+        s_tsc_mhz    = 0.0;
+    }
+}
 
 /*********************************************************************************************************************
 * 环境内部状态
@@ -176,6 +307,95 @@ static void info_text(int x, int y, const char* text)
     settextcolor(WHITE);
     setbkmode(TRANSPARENT);
     text_out(x, y, text);
+}
+
+/*-------------------------------------------------------------------------------------------------------------------
+* 函数简介     覆盖式的「处理时间」行输出（先擦掉旧内容再画）
+* 参数说明     x               横坐标
+* 参数说明     y               纵坐标
+* 参数说明     text            字符串
+* 返回参数     void
+* 备注信息     ★ 为什么不能直接用 info_text：
+*              这一行每帧都要重画，而背景模式是 TRANSPARENT（不擦背景），
+*              且主循环并不每帧清屏。于是上一帧的数字会留在下面，
+*              与这一帧的数字叠在一起 —— 实测会看到
+*              「整帧 080709)3 us」这种两串数字糊成一团的东西。
+*              数字位数还会变（9.9 -> 10.1），行宽不固定，必须整行擦掉。
+*              这里先把该行区域清成背景色再写字，保证每帧只看到当前值。
+*-----------------------------------------------------------------------------------------------------------------*/
+static void info_text_overwrite(int x, int y, const char* text)
+{
+    int h  = 18;                                    /* 略高于 16px 字号，确保擦干净 */
+    int x2 = x + 900;                               /* 足够放「cycles + us + 绘图 + 整帧」 */
+
+    /* 夹到窗口内：窗口最窄只有 820，直接擦到 x=920 会越出右边界。
+     * EasyX 虽然会裁剪不会崩，但没必要依赖它。 */
+    if (x2 > s_win_w - 4) { x2 = s_win_w - 4; }
+
+    setfillcolor(BLACK);
+    solidrectangle(x - 4, y - 2, x2, y + h);
+
+    info_text(x, y, text);
+}
+
+/*-------------------------------------------------------------------------------------------------------------------
+* 函数简介     拼「处理时间」那一行的文字
+* 参数说明     buf             输出缓冲
+* 参数说明     n               缓冲长度
+* 参数说明     with_draw       是否带上「绘图」那一项
+* 返回参数     void
+* 备注信息     ★ 统一在这里拼串，避免「主循环」与「窗口重建补画」两处
+*              各写一份格式串而悄悄不一致（历史上就出过这个问题：
+*              加高窗口后那一行会变成短格式，看起来像数值变了）。
+*
+*              显示内容随本机是否支持周期计时而变：
+*                支持   → 处理时间: 40.73 M cycles (12753.5 us @3194MHz) ...
+*                不支持 → 处理时间: 12753.5 us ...
+*
+*              ★ 周期数用 M（百万）为单位显示。
+*                直接写 40732569 太长、数位难读，40.73 M 一眼就有量级感。
+*
+*              ★ 小值不缩单位，避免「0.00 M」这种看起来像没干活的误导：
+*                小于 1 M 时退回显示原始周期数（如 12345 cycles）。
+*                阈值取 1e6 —— 真实算法（Otsu 扫全图）通常在千万量级，
+*                会走 M 分支；只有极简的测试代码才会走原始值分支。
+*-----------------------------------------------------------------------------------------------------------------*/
+static void format_time_line(char* buf, size_t n, int with_draw)
+{
+    const char* cost;
+    char        costbuf[80];
+
+    if (s_tsc_usable)
+    {
+        /* 用周期数作为主指标，括号里给等效微秒与标定频率 */
+        if (s_last_cycles >= 1000000ULL)
+        {
+            snprintf(costbuf, sizeof(costbuf), "%.2f M cycles  (%.1f us @%.0fMHz)",
+                     (double)s_last_cycles / 1e6, s_last_cost, s_tsc_mhz);
+        }
+        else
+        {
+            /* 不足 1M 时不换算，否则会显示成 0.00 M，看着像没执行 */
+            snprintf(costbuf, sizeof(costbuf), "%llu cycles  (%.1f us @%.0fMHz)",
+                     s_last_cycles, s_last_cost, s_tsc_mhz);
+        }
+    }
+    else
+    {
+        snprintf(costbuf, sizeof(costbuf), "%.1f us", s_last_cost);
+    }
+    cost = costbuf;
+
+    if (with_draw)
+    {
+        snprintf(buf, n, "处理时间: %s   (绘图 %.1f us   整帧 %.1f us)",
+                 cost, s_draw_cost, s_frame_cost);
+    }
+    else
+    {
+        snprintf(buf, n, "处理时间: %s   (整帧 %.1f us)",
+                 cost, s_frame_cost);
+    }
 }
 
 /*********************************************************************************************************************
@@ -531,11 +751,30 @@ static void refresh_orig_image(void)
 * 函数简介     刷新处理后图像缓冲（按 config.h 的 ROI 取一块）
 * 参数说明     void
 * 返回参数     void
-* 备注信息
+* 备注信息     ★ 用 SCUT_OutImageRow 逐行取，行步长取真实的 SCUT_IMAGE_W。
+*              不能把 ROI 当紧凑数组处理 —— ROI 的行与行之间不连续，
+*              按 SCUT_OUT_IMAGE_W 跨行会读错行，画面斜切/错位。
 *-----------------------------------------------------------------------------------------------------------------*/
 static void refresh_proc_image(void)
 {
-    create_image_from_array(&SCUT_OUT_IMAGE_PTR[0][0], SCUT_OUT_IMAGE_W, SCUT_OUT_IMAGE_H, s_proc_img);
+    int            y, x;
+    DWORD*         p_buffer;
+    scut_out_pixel_t* row;
+
+    s_proc_img.Resize(SCUT_OUT_IMAGE_W, SCUT_OUT_IMAGE_H);
+    p_buffer = GetImageBuffer(&s_proc_img);
+
+    for (y = 0; y < SCUT_OUT_IMAGE_H; y++)
+    {
+        row = SCUT_OutImageRow(y);
+        if (row == 0) { continue; }
+
+        for (x = 0; x < SCUT_OUT_IMAGE_W; x++)
+        {
+            uint8 gray = (uint8)row[x];
+            p_buffer[(size_t)y * SCUT_OUT_IMAGE_W + x] = RGB(gray, gray, gray);
+        }
+    }
 }
 
 /*********************************************************************************************************************
@@ -634,7 +873,18 @@ static void rebuild_window(void)
     int  img_w  = (int)(SCUT_IMAGE_W * s_scale);
     int  img_w2 = (int)(SCUT_OUT_IMAGE_W * s_scale);
     int  win_w  = img_w + img_w2 + 40;
-    int  win_h  = disp_base_h() + 100 + (SCUT_LOG_MAX_LINES > 12 ? 12 : SCUT_LOG_MAX_LINES) * LOG_LINE_H + 60;
+    /* 窗口高度按「当前实际用到的日志行数」算，而不是按 SCUT_LOG_MAX_LINES 全额预留。
+     *
+     * SCUT_LOG_MAX_LINES 只是「最多允许多少行」的上限。用户平时只打几行日志，
+     * 若一开始就把 40 行的高度全留出来，下面会空一大片黑，窗口高得莫名其妙。
+     *
+     * ★ 这个公式必须与 SCUT_Log() 里的加高公式完全一致（两边都基于 s_log_lines）：
+     *       log_first_line_y() + s_log_lines * LOG_LINE_H + 60
+     *   其中 log_first_line_y() == disp_base_h() + 100。
+     *   若两边不一致，就会出现「这边按 N 行算、那边按更多行撑高」的情况：
+     *   日志撑高窗口后，下一次重建又缩回去把日志裁掉，紧接着再加高 —— 窗口来回跳。 */
+    int  log_rows = (s_log_lines > 0) ? s_log_lines : 1;
+    int  win_h  = log_first_line_y() + log_rows * LOG_LINE_H + 60;
     HWND hwnd;
 
     if (win_w < 820) { win_w = 820; }
@@ -662,6 +912,11 @@ void SCUT_EnvInit(void)
     chdir_to_project_root();
     init_pic_sets();
 
+    /* 计时基准：先探测本机是否支持稳定的 TSC，支持就标定它的频率。
+     * 只做一次（约 20ms），之后每帧直接读周期数，开销极小。 */
+    tsc_detect();
+    tsc_calibrate();
+
     s_log_lines = 0;
     rebuild_window();
     load_image();
@@ -674,6 +929,7 @@ void SCUT_EnvInit(void)
     s_need_reproc = 0;
     s_frame_ready = 0;
     s_last_cost   = 0.0;
+    s_last_cycles = 0;
 }
 
 void SCUT_EnvClose(void)
@@ -799,6 +1055,7 @@ void SCUT_EnvProcessImage(void)
 {
     LARGE_INTEGER freq, t0, t1;
     double        total_us;
+    unsigned long long c0 = 0, c1 = 0;
     int           i;
 
     QueryPerformanceFrequency(&freq);
@@ -808,25 +1065,37 @@ void SCUT_EnvProcessImage(void)
 
     s_log_enabled = 1;
     QueryPerformanceCounter(&t0);
+    c0 = tsc_read();
     image_process();
+    c1 = tsc_read();
     QueryPerformanceCounter(&t1);
 
     if (s_repeat > 1)
     {
         LARGE_INTEGER t2, t3;
+        unsigned long long c2, c3;
 
         s_log_enabled = 0;
         QueryPerformanceCounter(&t2);
+        c2 = tsc_read();
         for (i = 1; i < s_repeat; i++) { image_process(); }
+        c3 = tsc_read();
         QueryPerformanceCounter(&t3);
         s_log_enabled = 1;
 
         total_us = (double)((t1.QuadPart - t0.QuadPart) +
                             (t3.QuadPart - t2.QuadPart)) * 1000000.0 / (double)freq.QuadPart;
+
+        if (s_tsc_usable)
+        {
+            s_last_cycles = ((c1 - c0) + (c3 - c2)) / (unsigned long long)s_repeat;
+        }
     }
     else
     {
         total_us = (double)(t1.QuadPart - t0.QuadPart) * 1000000.0 / (double)freq.QuadPart;
+
+        if (s_tsc_usable) { s_last_cycles = c1 - c0; }
     }
 
     s_last_cost = total_us / (double)s_repeat;
@@ -854,18 +1123,10 @@ void SCUT_EnvPresent(void)
                    * 1000000.0 / (double)f.QuadPart;
 
     /* 「处理时间」是你的算法耗时；后面括号里的绘图/整帧耗时是另外两个量。
-     * 分开显示是因为绘图再慢也不该算进算法性能，但它确实影响帧率。 */
-    if (s_draw_timing)
-    {
-        snprintf(str, sizeof(str), "处理时间: %.1f us   (绘图 %.1f us   整帧 %.1f us)",
-                 s_last_cost, s_draw_cost, s_frame_cost);
-    }
-    else
-    {
-        snprintf(str, sizeof(str), "处理时间: %.1f us   (整帧 %.1f us)",
-                 s_last_cost, s_frame_cost);
-    }
-    info_text(INFO_X, time_line_y(), str);
+     * 分开显示是因为绘图再慢也不该算进算法性能，但它确实影响帧率。
+     * 格式统一由 format_time_line 生成（含 cycles/us 的取舍）。 */
+    format_time_line(str, sizeof(str), s_draw_timing);
+    info_text_overwrite(INFO_X, time_line_y(), str);
 
     display_image(s_orig_img, 5, IMG_TOP, "原图像");
     display_image(s_proc_img, 15 + (int)(SCUT_IMAGE_W * s_scale), IMG_TOP, "处理后的图像");
@@ -926,7 +1187,11 @@ extern "C" {
 * 参数说明     y               纵坐标
 * 参数说明     color           颜色
 * 返回参数     void
-* 备注信息     EasyX 缓冲是 0xAARRGGBB 而颜色宏是 0xRRGGBB 所以用 BGR() 换通道
+* 备注信息     EasyX 的图像缓冲就是 Windows 的 0x00BBGGRR，而 SCUT_COLOR_xxx
+*              也用同样的排列（见 scut_common_typedef.h 的 SCUT_RGB），
+*              所以这里【直接赋值】即可，不要做任何通道交换。
+*              曾经这里套了一层 BGR()，那是为了抵消当时 0xRRGGBB 的宏定义；
+*              现在宏已经统一成 COLORREF，再换一次反而会红蓝互换。
 *-----------------------------------------------------------------------------------------------------------------*/
 static void put_pixel_proc(int x, int y, unsigned int color)
 {
@@ -934,7 +1199,7 @@ static void put_pixel_proc(int x, int y, unsigned int color)
 
     if (x >= 0 && x < SCUT_OUT_IMAGE_W && y >= 0 && y < SCUT_OUT_IMAGE_H)
     {
-        p_buf[y * SCUT_OUT_IMAGE_W + x] = BGR((COLORREF)color);
+        p_buf[y * SCUT_OUT_IMAGE_W + x] = (DWORD)color;
     }
 }
 
@@ -994,7 +1259,15 @@ void SCUT_Log(scut_log_level_enum level, const char* fmt, ...)
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
-    if (s_log_lines >= SCUT_LOG_MAX_LINES) { s_log_lines = 0; }
+    /* 行数写满就回到第一行重新写（环形）。
+     * ★ 回绕时必须把旧内容清掉：s_log_buf 是用来在窗口重建后补画日志的，
+     *   若只把 s_log_lines 归零而留着旧字符串，补画循环会把上一轮的
+     *   日志又画一遍，屏幕上出现早已过期的内容。 */
+    if (s_log_lines >= SCUT_LOG_MAX_LINES)
+    {
+        s_log_lines = 0;
+        s_log_buf[0][0] = '\0';
+    }
 
     y = log_first_line_y() + s_log_lines * LOG_LINE_H;
 
@@ -1009,10 +1282,13 @@ void SCUT_Log(scut_log_level_enum level, const char* fmt, ...)
 
         /* 窗口重建会清掉画面 这里把当前帧和已输出的日志补画一遍 */
         {
-            char str[96];
+            char str[128];
             int  k;
 
-            snprintf(str, sizeof(str), "处理时间: %.1f us", s_last_cost);
+            /* 与此前 SCUT_EnvPresent 显示的文字保持一致，
+             * 否则「加高窗口」这件事本身会让那行字变短。
+             * 用同一个 format_time_line，保证两处永远不会走样。 */
+            format_time_line(str, sizeof(str), s_draw_timing);
             info_text(INFO_X, time_line_y(), str);
             display_image(s_orig_img, 5, IMG_TOP, "原图像");
             display_image(s_proc_img, 15 + (int)(SCUT_IMAGE_W * s_scale), IMG_TOP, "处理后的图像");
@@ -1080,7 +1356,7 @@ void SCUT_EnableDrawTiming(int enable)
 * 返回参数     void
 * 备注信息     实现要点：
 *               1) 绝对【不能】调用 refresh_proc_image()。
-*                  那个函数会把 SCUT_OUT_IMAGE_PTR 指向的原始数组
+*                  那个函数会把输出数组（SCUT_OUT_IMAGE_ARRAY 的 ROI）
 *                  重新拷进 s_proc_img，正好把 SCUT_DrawPoint 刚画上去的
 *                  像素全部覆盖掉 —— 实测会导致画面上什么都看不到。
 *                  SCUT_DrawPoint 本来就是直接改 s_proc_img 缓冲的，

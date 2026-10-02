@@ -1,7 +1,7 @@
 [Project]
 FileName=视觉仿真环境.dev
 Name=视觉仿真环境
-UnitCount=12
+UnitCount=13
 Type=0
 Ver=2
 ObjFiles=
@@ -11,7 +11,8 @@ PrivateResource=
 ResourceIncludes=
 MakeIncludes=
 Compiler=-Ienv_@@_-Icode_@@_-I._@@_-finput-charset=UTF-8_@@_-fexec-charset=GBK_@@_-Wall_@@_
-CppCompiler=-std=c++17_@@_-Ienv_@@_-Icode_@@_-I._@@_-finput-charset=UTF-8_@@_-fexec-charset=GBK_@@_-Wall_@@_
+CppCompiler=-std=c++17_@@_-Ienv_@@_-Icode_@@_-I._@@_-finput-charset=UTF-8_@@_-fexec-charset=GBK_@@_-Wall_@@_-O0_@@_
+CCompiler=-std=c11_@@_-Ienv_@@_-Icode_@@_-I._@@_-finput-charset=UTF-8_@@_-fexec-charset=GBK_@@_-Wall_@@_-O0_@@_
 Linker=-leasyx_@@_-lgdi32_@@_-lole32_@@_-static_@@_
 IsCpp=1
 Icon=
@@ -169,6 +170,18 @@ DetectEncoding=0
 Encoding=0
 
 [Unit12]
+FileName=code\scut_port.h
+CompileCpp=1
+Folder=
+Compile=0
+Link=0
+Priority=1000
+OverrideBuildCmd=0
+BuildCmd=
+DetectEncoding=0
+Encoding=0
+
+[Unit13]
 FileName=code\camera.c
 CompileCpp=0
 Folder=

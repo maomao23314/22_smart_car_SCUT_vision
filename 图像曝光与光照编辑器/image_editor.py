@@ -492,6 +492,13 @@ class ImageEditor:
 
         用 Label 手绘而不是 ttk.Checkbutton：clam 主题会给 Checkbutton
         强制画一个系统勾选框，观感与折叠箭头不符。
+
+        ★ 展开时用 after=<本区块的标题> 重新 pack，而不是裸的 body.pack()。
+          因为 pack 的顺序取决于调用顺序：裸 pack 会把这个 body 追加到
+          父容器末尾。于是展开「高级参数」时，它的内容会跑到已经 pack 好的
+          「仿真联动」标题【后面】—— 屏幕上表现为联动按钮夹在
+          「高级参数」标题和它的参数中间，怎么点都不对。
+          锚定在自家标题之后，无论以什么顺序展开，区块相对次序都固定。
         """
         exp = bool(state_var.get())
         btn = tk.Label(parent, text=("▼  " if exp else "▶  ") + title,
@@ -506,7 +513,7 @@ class ImageEditor:
             new = not state_var.get()
             state_var.set(new)
             if new:
-                body.pack(fill="x")
+                body.pack(fill="x", after=btn)
                 btn.config(text="▼  " + title, fg=ACCENT)
             else:
                 body.pack_forget()
@@ -514,7 +521,7 @@ class ImageEditor:
 
         btn.bind("<Button-1>", toggle)
         if exp:
-            body.pack(fill="x")
+            body.pack(fill="x", after=btn)
         return btn, body
 
     def _toggle_advanced(self):
