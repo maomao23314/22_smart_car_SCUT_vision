@@ -53,15 +53,33 @@
 /* 环境适配：车载工程里这两个宏来自逐飞库的摄像头驱动
  * （main_0.h -> MAO_MT9V034.h），仿真环境里没有那个头文件，
  * 所以在这里补上映射。值是一致的（120 / 188），
- * 因此下面的 USED_ROW / RESULT_ROW 等宏无需任何改动。 */
+ * 因此下面的 USED_ROW / RESULT_ROW 等宏无需任何改动。
+ *
+ * ★ 全部用 #ifndef 包起来：本头文件会被 code_headerlist.h 带进
+ *   env\disp_env.cpp（C++ 编译单元），而 MT9V03X_H / MT9V03X_W 是
+ *   逐飞库的【标准名字】，用户的头文件或车载库很可能已经定义过。
+ *   不加保护时会报 warning: "MT9V03X_H" redefined，
+ *   或者两份值悄悄不一致 —— 前者吵人，后者难查。 */
+#ifndef MT9V03X_H
 #define         MT9V03X_H               SCUT_IMAGE_H
+#endif
+#ifndef MT9V03X_W
 #define         MT9V03X_W               SCUT_IMAGE_W
+#endif
 
+#ifndef USED_ROW
 #define         USED_ROW                MT9V03X_H                              // 用于透视图的行列
+#endif
+#ifndef USED_COL
 #define         USED_COL                MT9V03X_W
+#endif
 
+#ifndef RESULT_ROW
 #define RESULT_ROW          MT9V03X_H                                           // 结果图行列
+#endif
+#ifndef RESULT_COL
 #define RESULT_COL          MT9V03X_W
+#endif
 
 #ifdef __cplusplus
 extern "C" {

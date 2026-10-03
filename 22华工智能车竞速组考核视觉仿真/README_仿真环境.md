@@ -160,90 +160,28 @@ void show_image_data(void)  // ② 用 SCUT_Log 输出数据
 
 ---
 
-## 三点五、环境如何找到你的代码（想改名/删示例时必读）
+## 三点五、环境怎么找到你的代码
 
-这一节解释环境和你代码之间的"接口约定"，以及**哪些能自由改、哪些有限制**。
+`code\*.c` 不是单独编译的，而是被全部 `#include` 进 `env\simu_env.c`。
+清单文件 `env\code_filelist.h` 由 `tools\gen_filelist.ps1` 自动生成，同理还有一份
+`env\code_headerlist.h` 列出 `code\` 下所有 `.h`。所以你增删改名、建子文件夹都可以，
+不用动环境。唯一的代价是：**改完文件结构要重跑一次扫描**，VS 和命令行会自动，
+Dev-C++ 需要手动跑 `tools\rebuild.bat`。
 
-### 你的代码怎么被编译进来
+有几点可以配置：
 
-环境**不单独编译** `code\*.c`，而是把它们全部 `#include` 进 `env\simu_env.c`
-这一个编译单元。清单文件是 `env\code_filelist.h`，由 `tools\gen_filelist.ps1` 生成：
+- **入口函数名**：`config.h` 的 `SCUT_USER_INIT_FUNC` / `SCUT_USER_PROCESS_FUNC`。
+  改成 `my_vision_init` / `my_vision_run` 也行，签名保持 `void f(void)` / `int f(void)`。
+- **不想画示例的三条调试线**（左/右/中线）：把 `SCUT_DRAW_SAMPLE_LINES` 改成 0。
+  这三个数组是示例专有的，你换了自己的算法后它们就不存在了，必须关掉。
+  如果你也导出了同名数组，就不用改；名字不同的话改 `SAMPLE_LINE_LEFT/RIGHT/MID`。
 
-```c
-/* env\code_filelist.h —— 自动生成，不要手改 */
-#include "../code/camera.c"
-#include "../code/perspective.c"
-     ↑ 你新增的文件会自动出现在这里（跑过扫描脚本之后）
-```
-
-**所以你可以**：随便增删改 `code\` 下的 `.c` / `.h`，建子文件夹，都行。
-
-### 入口函数名可以改
-
-`config.h` 里：
-
-```c
-#define SCUT_USER_INIT_FUNC      image_init      // 改成你的初始化函数名
-#define SCUT_USER_PROCESS_FUNC   image_process   // 改成你的每帧处理函数名
-```
-
-环境通过这两个宏调用，所以你的函数叫 `my_vision_init` / `my_vision_run` 也没问题，
-**签名保持一致即可**（初始化 `void f(void)`，处理 `int f(void)`）。
-
-### 头文件名也可以改（v1.4.0 起）
-
-环境需要包含你的头文件才能拿到你声明的全局变量（比如给绘图用）。
-
-**早期版本**在这里硬编码了 `#include "camera.h"`，导致你把示例改名或删掉后
-环境本体就编不过 —— 与"算法文件一个字不用动"的承诺矛盾。**现已修好**：
-
-- 环境改为包含 `env\code_headerlist.h`（同样自动生成），里面列出 `code\` 下所有 `.h`
-- 每条都用 `__has_include` 包着，所以清单过期（删了文件没重扫）也不会编不过
-
-**为什么不能用"自动扫描目录"这种更聪明的办法**（技术限制，写在这里免得后人再试）：
-
-| 想法 | 结果 |
-|---|---|
-| `#if __has_include("*.h")` | ❌ **不行**。`__has_include` 只接受一个确定的文件名，不支持通配符（GCC 实测直接报 `Invalid argument`） |
-| `#include "某个目录"` | ❌ **不行**。C 标准不允许包含目录（GCC 报 `No such file or directory`） |
-| 让环境去猜函数/变量名 | ❌ **做不到**。预处理器只能判断"**头文件**在不在"，无法判断"某个**变量**有没有被声明" |
-
-**结论**：C 语言层面没有"自动包含一个目录下所有头文件"的能力。
-本项目采用的办法是**让构建脚本去发现**（生成清单），这也是它能做到"改名不用动环境"的原因。
-代价是：**新增/改名头文件后要重跑一次扫描**（VS 和命令行自动，Dev-C++ 需手动跑
-`tools\rebuild.bat`）。
-
-### 示例的三条调试线怎么关
-
-`main.cpp` 的 `draw_image_info()` 默认会把示例算法导出的
-`left_line` / `right_line` / `mid_line` 画成绿/蓝/红三条线。
-**这三个变量是示例专有的** —— 你换成自己的算法后它们就不存在了。
-
-`config.h` 里：
-
-```c
-#define SCUT_DRAW_SAMPLE_LINES   (1)      // 改成 0 就不再画这三条线
-```
-
-改成 `0` 之后 `main.cpp` 不会引用那些变量，你的算法只写自己的绘图代码即可。
-（若你给自己的数组起了别的名字，也可以改 `SAMPLE_LINE_LEFT/RIGHT/MID` 三个宏。）
-
-> 为什么不干脆自动判断：同上 —— 预处理器无法判断变量是否存在，
-> 所以给一个**显式开关**，行为确定，不会猜错。
-
-### 小结：改名自由度一览
-
-| 你想改的 | 能改吗 | 怎么改 |
-|---|---|---|
-| 算法 `.c` / `.h` 文件名 | ✅ 能 | 直接改。改完跑一次 `tools\rebuild.bat`（VS/命令行自动） |
-| 建子文件夹 | ✅ 能 | 直接建，支持 `code\algo\x.c` |
-| 入口函数名 | ✅ 能 | 改 `config.h` 的 `SCUT_USER_INIT_FUNC` / `SCUT_USER_PROCESS_FUNC` |
-| 删掉示例 | ✅ 能 | 删了之后把 `SCUT_DRAW_SAMPLE_LINES` 改成 0 |
-| 调试线数组名 | ✅ 能 | 改 `SAMPLE_LINE_LEFT/RIGHT/MID` |
-| 函数签名 | ❌ 不能 | 必须 `void f(void)` / `int f(void)` |
-| 入口函数所在的编译方式 | ❌ 不能 | `code\*.c` 一律按 **C** 编译，不能写 C++ 语法 |
+顺带一提，C 预处理器没有"自动包含一个目录下所有头文件"的能力：
+`__has_include` 不支持通配符，也不能 `#include` 一个目录（GCC/MSVC 都报错），
+更没法判断"某个变量有没有被声明"。所以只能用生成清单这个办法。
 
 ---
+
 
 ## 四、接口速查
 
@@ -659,9 +597,11 @@ gcc -std=c11 -Wall -Wextra -I code -c code\camera.c -o build\camera.o
 **工程约束**
 1. `code\` 下的文件是**纯 C**（C11），不得引入 C++ 语法或图形库依赖。
    环境侧用 `extern "C"` 导出接口，C 文件调用它们和调普通 C 函数一样。
-2. `code\` 下的文件**只能** `#include "scut_port.h"` 这一个头文件，
+2. `code\` 下**对外依赖只允许** `#include "scut_port.h"` 这一个头文件，
    不得包含 `scut_display.h` / `simu_env.h` / `config.h` 等环境头文件 ——
    否则代码就没法直接搬到单片机。这是硬约束，改代码时务必守住。
+   （`code\` 内部文件互相包含，比如 `camera.c` → `perspective.h`，那是允许的；
+   只要最终外部依赖收敛到 `scut_port.h` 一个就行。）
 3. `code\` 里可用的接口全部在 `code\scut_port.h` 里声明：
    `SCUT_DrawPoint/DrawLine/DrawRect`、`SCUT_Log/SCUT_LogAt/SCUT_LogClear`、
    `SCUT_Get*Width/Height`、`SCUT_OutImageSet/Get`。
@@ -715,14 +655,20 @@ gcc -std=c11 -Wall -Wextra -I code -c code\camera.c -o build\camera.o
    真正的定义只在 `config.h` 一处，别在别处再定义一遍。
 
 3. **`code\` 里绝对不能出现仿真环境的头文件。**
-   判断方法：`scut_port.h` 用 `SCUT_PORT_STANDALONE` 宏探测
-   `_scut_display_h_` / `_scut_common_typedef_h_` 是否已被包含。
-   在仿真环境里这两个宏必然存在（`simu_env.c` 先包含了 `simu_env.h`），
-   于是 `scut_port.h` 整段跳过自己的类型/颜色/日志定义，避免重复定义；
-   单独拷到单片机时它们不存在，`scut_port.h` 就成为唯一来源。
-   **改动包含顺序时要特别小心**：一旦这个探测失效，症状是
+   `scut_port.h` 用 `SCUT_PORT_STANDALONE` 宏区分两种场合：跑在仿真环境里
+   还是被单独拷到单片机。判断方式是**主动探测**环境头文件在不在：
+
+   ```c
+   #if __has_include("scut_display.h") && __has_include("scut_common_typedef.h")
+   #  define SCUT_PORT_HAS_ENV_HEADERS 1
+   #endif
+   ```
+
+   ★ 早期版本是"看环境头文件的 include guard 有没有被定义过"，那取决于
+   **谁先被包含** —— 靠约定而非机制。包含顺序一变就翻转，症状是
    「`redefinition of 'scut_log_level_enum'`」或反过来一片
-   「undefined identifier」，两种方向都可能出现。
+   「undefined identifier」。现在改成主动 `__has_include` 探测，
+   无论谁先谁后结果都一致。**改这段时要保持"顺序无关"这个性质。**
 
 4. **输出图像的「定义」在 `env\simu_env.c`，不在 `code\`。**
    早期版本把 `output_image` 定义在 `camera.c` 里，还带一个
@@ -795,8 +741,29 @@ gcc -std=c11 -Wall -Wextra -I code -c code\camera.c -o build\camera.o
     现已在 `SCUT_HotReloadInitEx` 里检测 `snprintf` 截断，
     截断时直接放弃监测（宁可没有联动，也不要卡死）。
 
+13. **`code\*.h` 会被 C 和 C++ **两套**编译器看到，不只是 C。**
+    `env\simu_env.c`（C）经 `code_filelist.h` 包含 `code\*.c`；
+    而 `env\disp_env.cpp`（C++）经 `code_headerlist.h` 包含 `code\*.h`。
+    所以用户的头文件必须两种语言都能过：宏要加 `#ifndef` 保护
+    （`MT9V03X_H` 这类逐飞库标准名尤其容易撞），不能用 C++ 专属语法。
+    `verify_mixed.ps1` 第 4 项就是专门测这个的探针。
+
+14. **`disp_env.hpp` 里 `SCUT_USER_*` 的原型必须在 `extern "C"` 内，
+    且早于 `code_headerlist.h`。**
+    用户的 `.c` 按 C 编译，符号不被修饰；而 `disp_env.cpp` 是 C++。
+    缺 `extern "C"` 时链接报 `undefined reference to 'my_vision_run()'`，
+    但 `nm` 看对象文件里明明有该符号 —— 极易误判成"文件没被编译"。
+    顺序也重要：先声明成 C linkage，用户头文件里那份声明才会与它合并；
+    反过来会报 `conflicting declaration ... with 'C' linkage`。
+
+15. **VS 的增量构建能正确跟踪 `code\*.h` 变化**（靠 `/showIncludes`），
+    不需要往 `DSH_GenFileList` 的 stamp 里加 `.h`。
+    但**别把工程放在 `%TEMP%` 下测**：MSBuild 会报
+    `MSB8029: 中间目录无法驻留在临时目录下`，此时增量构建不可靠，
+    会出现"改了头文件但 obj 不重编"的假象。
+
 **验证方式**
-- 改完建议跑 `tools\verify_mixed.ps1`（完整环境应输出 8 项 PASS）。
+- 改完建议跑 `tools\verify_mixed.ps1`（完整环境应输出 10 项 PASS）。
   它用 vswhere 自动定位任意版本的 Visual Studio；**若本机没装 VS，
   MSVC 那半会被跳过，脚本会明确报告「只验证了 MinGW 部分」并以
   退出码 2 结束**，不会假装全部通过。

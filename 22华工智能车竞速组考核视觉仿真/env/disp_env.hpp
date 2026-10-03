@@ -92,41 +92,27 @@ int         SCUT_USER_PROCESS_FUNC      (void);
 /*-------------------------------------------------------------------------------------------------------------------
 * 用户算法的头文件（★ 不写死文件名）
 *
-* ★ 为什么不能直接 #include "camera.h"：
-*   camera.h 是【用户文件】。README 明确鼓励"自己设计算法，不要照抄示例"，
-*   config.h 也承诺"函数改名只需改宏，算法文件一个字不用动"。
-*   但环境一旦硬编码包含 camera.h，用户把示例改名成 myalgo.h、
-*   或者干脆删掉示例，环境本体就编不过了 —— 承诺和实现对不上。
+* 为什么要这样绕一层：camera.h 之类是【用户文件】。README 鼓励"自己设计算法，
+* 不要照抄示例"，config.h 也承诺"函数改名只需改宏"。若环境硬编码包含
+* camera.h，用户把示例改名或删掉，环境本体就编不过 —— 承诺和实现对不上。
 *
-* ★ 为什么不用 __has_include("*.h") 自动扫一遍：
-*   C 预处理器【没有】通配符能力，__has_include 只接受一个确定的文件名，
-*   也不能 #include 一个目录（实测 GCC / MSVC 都直接报错）。
-*   这是语言层面的限制，不是写法问题。
+* 为什么不能自动扫目录：C 预处理器没有通配符能力（__has_include 不接受
+* "*.h"，也不能 #include 一个目录，GCC/MSVC 实测均报错）。这是语言限制。
 *
-* ★ 实际做法：由 code_headerlist.h 列出 code\ 下的所有 .h，
-*   那个文件由 tools\gen_filelist.ps1 自动生成（和 code_filelist.h 同一套机制）。
-*   于是"用户有哪些头文件"这件事交给构建脚本去发现，
-*   环境只管包含这份清单 —— 用户增删改名都不用动环境。
+* 所以改成：code_headerlist.h 列出 code\ 下的所有 .h（由 gen_filelist.ps1 生成），
+* 环境包含这份清单即可。清单每条都用 __has_include 包着，过期也不会编不过。
 *
-*   清单里每一条都用 __has_include 包着，所以即使清单过期
-*   （比如手工删了文件但没重跑脚本），也不会因为文件不存在而编译失败。
+* ★ 注意：这些头文件会被 C++ 的 disp_env.cpp 看到（不只是 C 的 simu_env.c）。
+*   所以 code\ 下的头文件要保持"能被 C 和 C++ 同时包含"，
+*   宏要加 #ifndef 保护、不要用 C++ 专属语法。
 *
-* ★ 这个 include 的意义：让 main.cpp 里的示例可视化代码（draw_image_info）
-*   能拿到示例算法导出的 left_line / mid_line 等变量。
-*   用户换成自己的算法后，这些变量可能不存在 —— 那种情况下
-*   main.cpp 里对应的绘制代码请一并改掉（或者参考底部 DSH_HAVE_USER_HEADER
-*   的用法做条件编译）。
+* ★ 这个 include 的用途：让 main.cpp 的示例可视化拿到 left_line 等变量。
+*   换成自己的算法后要关掉示例绘制 —— 改 config.h 的 SCUT_DRAW_SAMPLE_LINES。
 *-----------------------------------------------------------------------------------------------------------------*/
 #if defined(__has_include)
 #  if __has_include("code_headerlist.h")
 #    include "code_headerlist.h"
-#    define DSH_HAVE_USER_HEADER 1
 #  endif
-#endif
-#ifndef DSH_HAVE_USER_HEADER
-/* 清单不存在（还没跑过 gen_filelist.ps1，或者 code\ 下没有 .h）。
- * 这不是错误：环境依然能编能跑，只是拿不到用户声明的变量。 */
-#  define DSH_HAVE_USER_HEADER 0
 #endif
 
 /* 用户算法入口的原型已在文件开头声明过（必须早于上面的 code_headerlist.h，

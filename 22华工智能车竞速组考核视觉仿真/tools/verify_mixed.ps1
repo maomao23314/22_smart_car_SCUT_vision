@@ -142,6 +142,50 @@ namespace dummy_namespace { }
 }
 
 Write-Host ""
+Write-Host "=== 4. code\*.h must be includable from BOTH C and C++ ===" -ForegroundColor Cyan
+# WHY THIS CHECK EXISTS:
+#   code\*.h are pulled into the environment through env\code_headerlist.h,
+#   which is included by env\disp_env.hpp -- a C++ header. So the user's
+#   headers are seen by g++ as well as by gcc, even though code\*.c are pure C.
+#   Without this check, a header that only compiles as C (uses C++ keywords as
+#   identifiers, relies on C-only syntax, defines macros that clash, ...) would
+#   break disp_env.cpp and nothing here would notice.
+if (-not $mingwBin) {
+    Info "MinGW not found - skipping header portability check"
+} else {
+    $gcc = Join-Path $mingwBin 'gcc.exe'
+    $gpp = Join-Path $mingwBin 'g++.exe'
+    $hdrProbe = Join-Path $env:TEMP '_hdrlist_probe.c'
+    $inc = @('-Ienv', '-Icode', '-I.')
+
+    # Only meaningful once the generated list exists.
+    if (-not (Test-Path (Join-Path $Root 'env\code_headerlist.h'))) {
+        Info "env\code_headerlist.h missing - run tools\gen_filelist.ps1 first"
+    } else {
+        @'
+#include "code_headerlist.h"
+int _dsh_hdr_probe(void) { return 0; }
+'@ | Set-Content -Encoding ASCII $hdrProbe
+
+        # as C
+        Push-Location $Root
+        & $gcc -fsyntax-only $hdrProbe @inc 2>$null
+        $cOk = ($LASTEXITCODE -eq 0)
+        # as C++  (this is the path that env\disp_env.cpp actually uses)
+        & $gpp -fsyntax-only -std=c++17 $hdrProbe @inc 2>$null
+        $cppOk = ($LASTEXITCODE -eq 0)
+        Pop-Location
+
+        if ($cOk)  { Ok "code\*.h compile as C   (via code_headerlist.h)" }
+        else       { Bad "code\*.h do NOT compile as C" }
+        if ($cppOk) { Ok "code\*.h compile as C++ (needed: disp_env.cpp includes them)" }
+        else        { Bad "code\*.h do NOT compile as C++ - env\disp_env.cpp will fail" }
+
+        Remove-Item $hdrProbe -ErrorAction SilentlyContinue
+    }
+}
+
+Write-Host ""
 if ($fail -gt 0) {
     Write-Host "RESULT: $pass passed, $fail FAILED." -ForegroundColor Red
 } elseif (-not $msvcChecked) {

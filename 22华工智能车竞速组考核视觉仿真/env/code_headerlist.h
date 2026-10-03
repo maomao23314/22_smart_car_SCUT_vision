@@ -18,11 +18,15 @@
 #ifndef CODE_HEADERLIST_H
 #define CODE_HEADERLIST_H
 
-/* Fallback for compilers without __has_include (very old ones).
- * Every real toolchain used here (GCC 10 / MSVC 2017+) has it. */
-#ifndef __has_include
-#  define __has_include(x) 0
-#endif
+/* Each entry below is __has_include-protected on purpose: if this list is
+ * stale (a file was deleted but the script was not re-run), the test just
+ * fails and nothing breaks.
+ *
+ * NOTE: there is deliberately NO "#ifndef __has_include" fallback macro.
+ * Defining __has_include would make every later __has_include test in the
+ * same translation unit evaluate to 0, silently breaking the env-detection
+ * in scut_port.h. GCC 10 / MSVC 2017+ always provide it, so such a
+ * fallback can never legitimately trigger. */
 
 #if __has_include("../code/camera.h")
 #  include "../code/camera.h"
