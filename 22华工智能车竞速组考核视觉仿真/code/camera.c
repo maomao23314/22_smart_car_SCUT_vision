@@ -24,10 +24,33 @@
 *       CAMERA_USE_PERSPECTIVE = 1  用俯视图做处理（算法读 ImageUsed）
 *       CAMERA_USE_PERSPECTIVE = 0  直接用原图做处理（不启用时的写法）
 * 注意：具体的参数需要自己去测试、设置
+*
+* ★ perspective.h 用 __has_include 条件包含，不是必需的：
+*   perspective.c/.h 只是一个【可选示例】。把它们删掉之后，
+*   这里会自动退化成"用原图处理"，本文件照样能编译 ——
+*   不会因为少了一个可选示例就整个工程编不过。
+*   若你删掉了 perspective 又没把 CAMERA_USE_PERSPECTIVE 改成 0，
+*   下面的 #error 会明确告诉你该改哪里，而不是报一堆看不懂的
+*   "ImageUsed undeclared"。
 *-----------------------------------------------------------------------------------------------------------------*/
-#include "perspective.h"
+#if defined(__has_include)
+#  if __has_include("perspective.h")
+#    include "perspective.h"
+#    define CAMERA_HAVE_PERSPECTIVE 1
+#  endif
+#endif
+#ifndef CAMERA_HAVE_PERSPECTIVE
+#  define CAMERA_HAVE_PERSPECTIVE 0
+#endif
 
 #define CAMERA_USE_PERSPECTIVE      (1)                                         // 1=用逆透视俯视图 0=用原图
+
+#if CAMERA_USE_PERSPECTIVE && !CAMERA_HAVE_PERSPECTIVE
+/* 用 ASCII 写错误信息：中文经过 -fexec-charset=GBK 转换后，
+ * #error 的报错文本可能出现乱码/转义告警，反而不易读。
+ * 中文说明放在上面注释里（注释不参与转码）。 */
+#  error "CAMERA_USE_PERSPECTIVE=1 but perspective.h was not found. Either set CAMERA_USE_PERSPECTIVE to 0, or restore code/perspective.c and code/perspective.h."
+#endif
 
 /*********************************************************************************************************************
 * 对外变量

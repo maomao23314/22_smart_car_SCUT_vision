@@ -1,4 +1,4 @@
-# 22 届视觉组仿真环境
+﻿# 22 届视觉组仿真环境
 
 > 华南理工大学智能车队 22 届招新 · 竞速组视觉方向
 
@@ -71,6 +71,7 @@
 ├─ code\                      ★★ 你的代码就放这里 ★★
 │   ├─ camera.c               算法示例（大津法二值化 + 左右扫线）
 │   ├─ camera.h               算法对外接口与全局变量声明
+│   ├─ perspective.c/.h       逆透视（俯视图）可选示例，默认不启用
 │   └─ scut_port.h            ★ 单片机移植兼容层（整个 code\ 只依赖它）
 │
 ├─ env\                       环境本体（一般不用动）
@@ -81,7 +82,8 @@
 │   ├─ simu_env.h             输入图像 + 输出图像数组的声明
 │   ├─ simu_env.c             输入/输出图像的定义 + 自动收集 code\ 的挂载点
 │   ├─ hot_reload.h/.c        热重载：监测当前图片是否被编辑器改写（见第七节）
-│   └─ code_filelist.h        自动生成，不要手动改
+│   ├─ code_filelist.h        自动生成：code\ 下所有 .c 的清单（不要手动改）
+│   └─ code_headerlist.h      自动生成：code\ 下所有 .h 的清单（不要手动改）
 │
 ├─ VS\                        Visual Studio 工程
 │   ├─ visual_simu.sln        双击打开这个
@@ -155,6 +157,91 @@ void show_image_data(void)  // ② 用 SCUT_Log 输出数据
 > 为什么 Dev-C++ 要多一步：它没有"编译前执行命令"的功能，F11 不会重扫 `code\`。
 > VS 工程里有 `DSH_GenFileList` 目标每次自动重跑，命令行脚本里也显式调用了扫描脚本，
 > 只有 Dev-C++ 这条路需要你手动跑一次。
+
+---
+
+## 三点五、环境如何找到你的代码（想改名/删示例时必读）
+
+这一节解释环境和你代码之间的"接口约定"，以及**哪些能自由改、哪些有限制**。
+
+### 你的代码怎么被编译进来
+
+环境**不单独编译** `code\*.c`，而是把它们全部 `#include` 进 `env\simu_env.c`
+这一个编译单元。清单文件是 `env\code_filelist.h`，由 `tools\gen_filelist.ps1` 生成：
+
+```c
+/* env\code_filelist.h —— 自动生成，不要手改 */
+#include "../code/camera.c"
+#include "../code/perspective.c"
+     ↑ 你新增的文件会自动出现在这里（跑过扫描脚本之后）
+```
+
+**所以你可以**：随便增删改 `code\` 下的 `.c` / `.h`，建子文件夹，都行。
+
+### 入口函数名可以改
+
+`config.h` 里：
+
+```c
+#define SCUT_USER_INIT_FUNC      image_init      // 改成你的初始化函数名
+#define SCUT_USER_PROCESS_FUNC   image_process   // 改成你的每帧处理函数名
+```
+
+环境通过这两个宏调用，所以你的函数叫 `my_vision_init` / `my_vision_run` 也没问题，
+**签名保持一致即可**（初始化 `void f(void)`，处理 `int f(void)`）。
+
+### 头文件名也可以改（v1.4.0 起）
+
+环境需要包含你的头文件才能拿到你声明的全局变量（比如给绘图用）。
+
+**早期版本**在这里硬编码了 `#include "camera.h"`，导致你把示例改名或删掉后
+环境本体就编不过 —— 与"算法文件一个字不用动"的承诺矛盾。**现已修好**：
+
+- 环境改为包含 `env\code_headerlist.h`（同样自动生成），里面列出 `code\` 下所有 `.h`
+- 每条都用 `__has_include` 包着，所以清单过期（删了文件没重扫）也不会编不过
+
+**为什么不能用"自动扫描目录"这种更聪明的办法**（技术限制，写在这里免得后人再试）：
+
+| 想法 | 结果 |
+|---|---|
+| `#if __has_include("*.h")` | ❌ **不行**。`__has_include` 只接受一个确定的文件名，不支持通配符（GCC 实测直接报 `Invalid argument`） |
+| `#include "某个目录"` | ❌ **不行**。C 标准不允许包含目录（GCC 报 `No such file or directory`） |
+| 让环境去猜函数/变量名 | ❌ **做不到**。预处理器只能判断"**头文件**在不在"，无法判断"某个**变量**有没有被声明" |
+
+**结论**：C 语言层面没有"自动包含一个目录下所有头文件"的能力。
+本项目采用的办法是**让构建脚本去发现**（生成清单），这也是它能做到"改名不用动环境"的原因。
+代价是：**新增/改名头文件后要重跑一次扫描**（VS 和命令行自动，Dev-C++ 需手动跑
+`tools\rebuild.bat`）。
+
+### 示例的三条调试线怎么关
+
+`main.cpp` 的 `draw_image_info()` 默认会把示例算法导出的
+`left_line` / `right_line` / `mid_line` 画成绿/蓝/红三条线。
+**这三个变量是示例专有的** —— 你换成自己的算法后它们就不存在了。
+
+`config.h` 里：
+
+```c
+#define SCUT_DRAW_SAMPLE_LINES   (1)      // 改成 0 就不再画这三条线
+```
+
+改成 `0` 之后 `main.cpp` 不会引用那些变量，你的算法只写自己的绘图代码即可。
+（若你给自己的数组起了别的名字，也可以改 `SAMPLE_LINE_LEFT/RIGHT/MID` 三个宏。）
+
+> 为什么不干脆自动判断：同上 —— 预处理器无法判断变量是否存在，
+> 所以给一个**显式开关**，行为确定，不会猜错。
+
+### 小结：改名自由度一览
+
+| 你想改的 | 能改吗 | 怎么改 |
+|---|---|---|
+| 算法 `.c` / `.h` 文件名 | ✅ 能 | 直接改。改完跑一次 `tools\rebuild.bat`（VS/命令行自动） |
+| 建子文件夹 | ✅ 能 | 直接建，支持 `code\algo\x.c` |
+| 入口函数名 | ✅ 能 | 改 `config.h` 的 `SCUT_USER_INIT_FUNC` / `SCUT_USER_PROCESS_FUNC` |
+| 删掉示例 | ✅ 能 | 删了之后把 `SCUT_DRAW_SAMPLE_LINES` 改成 0 |
+| 调试线数组名 | ✅ 能 | 改 `SAMPLE_LINE_LEFT/RIGHT/MID` |
+| 函数签名 | ❌ 不能 | 必须 `void f(void)` / `int f(void)` |
+| 入口函数所在的编译方式 | ❌ 不能 | `code\*.c` 一律按 **C** 编译，不能写 C++ 语法 |
 
 ---
 

@@ -30,7 +30,6 @@ rem
 rem  NOTE: ASCII-only on purpose. .bat files are read as ANSI (codepage 936)
 rem        on Chinese Windows, so non-ASCII text here would garble the parser.
 rem ============================================================================
-@echo off
 setlocal
 cd /d "%~dp0.."
 set "ROOT=%CD%"
@@ -57,16 +56,18 @@ if exist "%ROOT%\build\*.o" (
 ) else (
     echo       no stale .o files in build\
 )
-rem MSVC objects live under VS\x64\<Config>\ ; if one is left over from before
-rem the file list changed, the next VS build can reuse it and miss new files.
-if exist "%ROOT%\VS\x64\Debug\simu_env.obj" (
-    del /q "%ROOT%\VS\x64\Debug\simu_env.obj"
-    echo       removed VS\x64\Debug\simu_env.obj
+rem MSVC objects: do NOT hard-code the path. The intermediate directory is
+rem VS\visual_simu\x64\Debug\ by default, but it changes with the configuration
+rem and platform, so scan for every simu_env.obj under VS\ instead.
+rem (Hard-coding VS\x64\Debug\ here was a real bug: that path does not exist,
+rem  while the one that DOES exist was left uncleaned.)
+set "VS_CLEANED=0"
+for /f "delims=" %%F in ('dir /s /b "%ROOT%\VS\simu_env.obj" 2^>nul') do (
+    del /q "%%F"
+    echo       removed %%~nF in %%~pF
+    set "VS_CLEANED=1"
 )
-if exist "%ROOT%\VS\x64\Release\simu_env.obj" (
-    del /q "%ROOT%\VS\x64\Release\simu_env.obj"
-    echo       removed VS\x64\Release\simu_env.obj
-)
+if "%VS_CLEANED%"=="0" echo       no stale simu_env.obj under VS\
 echo.
 
 echo ============================================================

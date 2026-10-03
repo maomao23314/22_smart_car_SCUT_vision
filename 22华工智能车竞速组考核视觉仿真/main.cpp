@@ -1,4 +1,4 @@
-/*===================================================================================================================
+﻿/*===================================================================================================================
  *  华南理工大学  智能车队                                       SCUT_Smart_car
  *  ---------------------------------------------------------------------------------------------------------------
  *  22 届招新 · 竞速组视觉方向
@@ -134,6 +134,7 @@ void draw_image_info(void)
      *   ImageUsed 的值），或者把坐标反向映射回原图再画。
      *
      *   本示例没有启用逆透视，所以按原图坐标系处理。 */
+#if SCUT_DRAW_SAMPLE_LINES
     for (y = 0; y < SCUT_OUT_IMAGE_H; y++)
     {
         /* 图像坐标系里的行号：显示区域的第 y 行 = 整图的第 y+Y 行 */
@@ -142,14 +143,19 @@ void draw_image_info(void)
         /* 超出算法实际算过的范围就跳过。
          * 正常情况下 SCUT_OUT_IMAGE_Y+SCUT_OUT_IMAGE_H <= SCUT_IMAGE_H
          * 由 simu_env.c 的静态断言保证，这里只是双保险，防止
-         * 有人改了断言之外的东西后越界读 left_line[]。 */
+         * 有人改了断言之外的东西后越界读数组。 */
         if (src_y < 0 || src_y >= SCUT_IMAGE_H) { continue; }
 
-        /* 列方向同理：算法给的列是图像坐标，减去 ROI 起点才是显示坐标 */
-        SCUT_DrawPoint(left_line[src_y]  - SCUT_OUT_IMAGE_X, y, SCUT_COLOR_GREEN);
-        SCUT_DrawPoint(right_line[src_y] - SCUT_OUT_IMAGE_X, y, SCUT_COLOR_BLUE);
-        SCUT_DrawPoint(mid_line[src_y]   - SCUT_OUT_IMAGE_X, y, SCUT_COLOR_RED);
+        /* 列方向同理：算法给的列是图像坐标，减去 ROI 起点才是显示坐标。
+         * 数组名由 config.h 的 SAMPLE_LINE_* 宏决定，环境不写死。 */
+        SCUT_DrawPoint(SAMPLE_LINE_LEFT[src_y]  - SCUT_OUT_IMAGE_X, y, SCUT_COLOR_GREEN);
+        SCUT_DrawPoint(SAMPLE_LINE_RIGHT[src_y] - SCUT_OUT_IMAGE_X, y, SCUT_COLOR_BLUE);
+        SCUT_DrawPoint(SAMPLE_LINE_MID[src_y]   - SCUT_OUT_IMAGE_X, y, SCUT_COLOR_RED);
     }
+#endif
+    /* SCUT_DRAW_SAMPLE_LINES == 0 时这里什么都不画。
+     * 那是"用户换了自己的算法"的正常情况 —— 不画调试线不该导致编不过，
+     * 你自己的可视化代码写在这个函数里即可。 */
 }
 
 /*-------------------------------------------------------------------------------------------------------------------

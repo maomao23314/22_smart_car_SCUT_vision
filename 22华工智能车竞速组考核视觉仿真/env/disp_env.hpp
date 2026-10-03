@@ -50,21 +50,87 @@
 #include "scut_common_typedef.h"
 #include "scut_display.h"
 #include "simu_env.h"
-#include "camera.h"
 
 /*-------------------------------------------------------------------------------------------------------------------
-* 用户算法入口的声明
+* 用户算法入口的声明（★ 必须放在包含用户头文件【之前】）
 *
-* 环境不直接写死 image_init / image_process 这两个名字，而是通过 config.h 里的
-* SCUT_USER_INIT_FUNC / SCUT_USER_PROCESS_FUNC 宏来调用（默认值就是这两个名字）。
-* 这样别人把函数命名成别的（my_vision_run 之类）时，改 config.h 即可，算法不用动。
+* 环境不写死 image_init / image_process 这两个名字，而是通过 config.h 里的
+* SCUT_USER_INIT_FUNC / SCUT_USER_PROCESS_FUNC 宏来调用。
+* 别人把函数命名成别的（my_vision_run 之类）时，改 config.h 即可，算法不用动。
+ *
+* ★★ 这里有两个必须遵守的点（都踩过坑）★★
 *
-* 这里用宏展开声明一遍，保证即使 code\ 下的头文件没有声明这两个函数
-* （比如用户换了文件名、或头文件里忘了声明），环境侧也能拿到正确的原型。
-* 若用户提供的原型与此处的签名不一致，编译器会直接报冲突 —— 这正是我们想要的。
+*  1) 必须包在 extern "C" 里。
+*     用户的算法是【C 文件】（code\*.c 按 C 编译），符号名不被修饰；
+*     而本头文件被 C++ 的 disp_env.cpp 包含并调用这两个函数。
+*     没有 extern "C" 时，C++ 会把名字修饰成 _Z13my_vision_runv，
+*     链接时找不到用户那个 C 符号，报
+*         undefined reference to `my_vision_run()'
+*     而 nm 看对象文件里明明有该符号 —— 极易误判成"文件没被编译"。
+*
+*  2) 必须在 #include "code_headerlist.h" 之前声明。
+*     否则用户头文件会先按 C++ linkage 声明一次（因为它是在 C++ 编译
+*     单元里被包含的），随后这里再声明成 C linkage，两者冲突，报
+*         conflicting declaration of 'void my_vision_init()' with 'C' linkage
+*     先声明成 C linkage，用户头文件里那份声明就会与之合并，不冲突。
+*
+*     ★ 如果你的算法头文件自己写了 extern "C"，两种顺序都能过；
+*       但没写的时候只有这个顺序是对的 —— 所以统一按这个顺序，
+*       不要求用户额外做什么。
 *-----------------------------------------------------------------------------------------------------------------*/
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void        SCUT_USER_INIT_FUNC         (void);
 int         SCUT_USER_PROCESS_FUNC      (void);
+
+#ifdef __cplusplus
+}
+#endif
+
+/*-------------------------------------------------------------------------------------------------------------------
+* 用户算法的头文件（★ 不写死文件名）
+*
+* ★ 为什么不能直接 #include "camera.h"：
+*   camera.h 是【用户文件】。README 明确鼓励"自己设计算法，不要照抄示例"，
+*   config.h 也承诺"函数改名只需改宏，算法文件一个字不用动"。
+*   但环境一旦硬编码包含 camera.h，用户把示例改名成 myalgo.h、
+*   或者干脆删掉示例，环境本体就编不过了 —— 承诺和实现对不上。
+*
+* ★ 为什么不用 __has_include("*.h") 自动扫一遍：
+*   C 预处理器【没有】通配符能力，__has_include 只接受一个确定的文件名，
+*   也不能 #include 一个目录（实测 GCC / MSVC 都直接报错）。
+*   这是语言层面的限制，不是写法问题。
+*
+* ★ 实际做法：由 code_headerlist.h 列出 code\ 下的所有 .h，
+*   那个文件由 tools\gen_filelist.ps1 自动生成（和 code_filelist.h 同一套机制）。
+*   于是"用户有哪些头文件"这件事交给构建脚本去发现，
+*   环境只管包含这份清单 —— 用户增删改名都不用动环境。
+*
+*   清单里每一条都用 __has_include 包着，所以即使清单过期
+*   （比如手工删了文件但没重跑脚本），也不会因为文件不存在而编译失败。
+*
+* ★ 这个 include 的意义：让 main.cpp 里的示例可视化代码（draw_image_info）
+*   能拿到示例算法导出的 left_line / mid_line 等变量。
+*   用户换成自己的算法后，这些变量可能不存在 —— 那种情况下
+*   main.cpp 里对应的绘制代码请一并改掉（或者参考底部 DSH_HAVE_USER_HEADER
+*   的用法做条件编译）。
+*-----------------------------------------------------------------------------------------------------------------*/
+#if defined(__has_include)
+#  if __has_include("code_headerlist.h")
+#    include "code_headerlist.h"
+#    define DSH_HAVE_USER_HEADER 1
+#  endif
+#endif
+#ifndef DSH_HAVE_USER_HEADER
+/* 清单不存在（还没跑过 gen_filelist.ps1，或者 code\ 下没有 .h）。
+ * 这不是错误：环境依然能编能跑，只是拿不到用户声明的变量。 */
+#  define DSH_HAVE_USER_HEADER 0
+#endif
+
+/* 用户算法入口的原型已在文件开头声明过（必须早于上面的 code_headerlist.h，
+ * 原因见那里的说明），这里不再重复。 */
 
 #ifdef __cplusplus
 extern "C" {
