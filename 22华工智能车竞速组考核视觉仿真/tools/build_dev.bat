@@ -1,4 +1,4 @@
-echo off
+@echo off
 rem ============================================================================
 rem  build_dev.bat -- one-click build with the Dev-C++ / MinGW-w64 toolchain
 rem ----------------------------------------------------------------------------
@@ -48,9 +48,16 @@ set "OUT=%ROOT%\build"
 rem Source files are UTF-8 with BOM; console text is GBK on Chinese Windows
 set "ENC=-finput-charset=UTF-8 -fexec-charset=GBK"
 set "WARN=-Wall -Wno-unused-parameter"
-rem NOTE: -I paths must not be wrapped in quotes here; the project path may contain
-rem       CJK characters but no spaces, and quoting breaks the -I flag in cmd.
-set INC=-I%ROOT%\env -I%ROOT% -I%ROOT%\code
+rem NOTE: relative -I paths are used on purpose, and they are correct here
+rem       because line 17 above did "cd /d %~dp0.." -- the working directory is
+rem       the project root by the time the compiler runs.
+rem       Relative paths (a) match what the .dev project and the config guide
+rem       already use, and (b) keep working when the project sits in a path
+rem       containing spaces (e.g. OneDrive folders): an ABSOLUTE -I path would
+rem       be split at the space unless quoted, producing bogus errors like
+rem         gcc: error: Files/...: No such file or directory
+rem       Do NOT "fix" this by wrapping %ROOT% in quotes -- just keep it relative.
+set INC=-Ienv -Icode -I.
 
 rem ---------------------------- 3b. optimisation --------------------------------
 rem  ★ 用户算法（code\*.c）必须按 -O0 编译，这里显式写出来。

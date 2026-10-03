@@ -62,18 +62,47 @@ if (-not $mingwBin) {
 Write-Host ""
 Write-Host "=== 2. MSVC: C linkage check ===" -ForegroundColor Cyan
 
-$dumpbin = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022' -Filter 'dumpbin.exe' -Recurse -ErrorAction SilentlyContinue |
-           Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1 -ExpandProperty FullName
+# Locate dumpbin through the same version-agnostic path the build scripts use.
+# Hard-coding 'C:\Program Files\Microsoft Visual Studio\2022' (as an earlier
+# version did) silently skipped this whole section on any other VS version or
+# install drive, while still reporting "all checks passed" -- which made the
+# script look like it had verified MSVC when it had not.
+$dumpbin = $null
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+if (Test-Path $vswhere) {
+    $vsRoot = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+                        -property installationPath 2>$null
+    if ($vsRoot) {
+        $vsRoot = $vsRoot.Trim()
+        $dumpbin = Get-ChildItem (Join-Path $vsRoot 'VC\Tools\MSVC') -Filter 'dumpbin.exe' -Recurse -ErrorAction SilentlyContinue |
+                   Where-Object { $_.FullName -match 'Hostx64\\x64' } |
+                   Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+    }
+}
+if (-not $dumpbin) {
+    # fallback: any VS install on any drive
+    foreach ($base in @("$env:ProgramFiles\Microsoft Visual Studio",
+                        "${env:ProgramFiles(x86)}\Microsoft Visual Studio",
+                        'D:\Program Files\Microsoft Visual Studio')) {
+        if (-not (Test-Path $base)) { continue }
+        $dumpbin = Get-ChildItem $base -Filter 'dumpbin.exe' -Recurse -ErrorAction SilentlyContinue |
+                   Where-Object { $_.FullName -match 'Hostx64\\x64' } |
+                   Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+        if ($dumpbin) { break }
+    }
+}
 
 $vsObj = Join-Path $Root 'VS\visual_simu\x64\Debug\simu_env.obj'
 if (-not (Test-Path $vsObj)) { $vsObj = Join-Path $Root 'VS\x64\Debug\simu_env.obj' }
 
+$msvcChecked = $false
 if (-not $dumpbin) {
-    Info "dumpbin not found - skipping MSVC checks"
+    Info "dumpbin not found - SKIPPING MSVC checks (this is NOT a pass)"
 } elseif (-not (Test-Path $vsObj)) {
-    Info "MSVC object missing - run tools\build_vs.bat first"
+    Info "MSVC object missing - SKIPPING MSVC checks (run tools\build_vs.bat first)"
 } else {
-    Info "object: $vsObj"
+    Info "dumpbin: $dumpbin"
+    Info "object : $vsObj"
     $out = & $dumpbin /SYMBOLS $vsObj 2>$null
     foreach ($fn in @('image_init', 'image_process', 'otsu_get_threshold')) {
         $cStyle = $out | Where-Object { $_ -match "\|\s+$fn\s*$" }
@@ -81,6 +110,7 @@ if (-not $dumpbin) {
         if ($cStyle -and -not $cppStyle) { Ok "$fn : C linkage (plain symbol)" }
         else { Bad "$fn : NOT C linkage (MSVC C++ mangling found)" }
     }
+    $msvcChecked = $true
 }
 
 Write-Host ""
@@ -112,10 +142,20 @@ namespace dummy_namespace { }
 }
 
 Write-Host ""
-if ($fail -eq 0) {
-    Write-Host "RESULT: all $pass check(s) passed - mixed C/C++ compilation confirmed." -ForegroundColor Green
-} else {
+if ($fail -gt 0) {
     Write-Host "RESULT: $pass passed, $fail FAILED." -ForegroundColor Red
+} elseif (-not $msvcChecked) {
+    # Do NOT claim a full pass when a whole section was skipped -- that is how
+    # this script used to report "all checks passed" on machines where no MSVC
+    # check had actually run at all.
+    Write-Host "RESULT: $pass check(s) passed, but the MSVC section was SKIPPED" -ForegroundColor Yellow
+    Write-Host "        (only the MinGW half was verified)." -ForegroundColor Yellow
+    Write-Host "        Install VS with the C++ toolset and run tools\build_vs.bat," -ForegroundColor Yellow
+    Write-Host "        then re-run this script for the full check." -ForegroundColor Yellow
+    Write-Host ""
+    exit 2
+} else {
+    Write-Host "RESULT: all $pass check(s) passed - mixed C/C++ compilation confirmed." -ForegroundColor Green
 }
 Write-Host ""
 exit $fail

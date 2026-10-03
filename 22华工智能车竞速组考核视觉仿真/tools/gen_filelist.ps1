@@ -31,10 +31,23 @@ if (-not (Test-Path $CodeDir)) {
 }
 
 # --- collect .c files under code\ (recursive; skip _*.c and *.tmp) ---
+# Every .c under code\ ends up in the SAME compilation unit (via code_filelist.h),
+# and sub-directories are supported: the generated #include keeps the
+# sub-directory part of the path (e.g. code\algo\line.c -> "../code/algo/line.c").
+# Using only the file NAME here would silently break sub-directories, because the
+# scan is recursive but the emitted path would not be.
 $cFiles = @()
 $cFiles = @(Get-ChildItem -Path $CodeDir -Filter '*.c' -Recurse -File -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -notlike '_*' -and $_.Name -notlike '*.tmp' } |
-            Sort-Object Name)
+            Sort-Object FullName)
+
+# Relative path (from code\) with forward slashes, so it can be used verbatim
+# inside an #include. #include wants '/' (or escaped '\\'), never a bare '\',
+# because a backslash inside a string is an escape character.
+function Get-RelPath([string]$full, [string]$baseDir) {
+    $rel = $full.Substring($baseDir.Length).TrimStart('\', '/')
+    return ($rel -replace '\\', '/')
+}
 
 # --- warn about duplicate content -------------------------------------------
 # Every .c under code\ ends up in the SAME compilation unit, so two files that
@@ -42,13 +55,17 @@ $cFiles = @(Get-ChildItem -Path $CodeDir -Filter '*.c' -Recurse -File -ErrorActi
 # "redefinition of ..." errors. A very common cause is a stray copy of an
 # existing file (e.g. someone duplicates camera.c to keep a backup).
 # Detect identical content here and report it clearly instead.
+# NOTE: compare by RELATIVE path, not bare name -- with sub-directories two
+# different files can share a name (code\a\util.c and code\b\util.c) and the
+# report must say which one is which.
 $dups = @{}
 foreach ($f in $cFiles) {
     $hash = (Get-FileHash $f.FullName -Algorithm MD5).Hash
+    $rel  = Get-RelPath $f.FullName $CodeDir
     if ($dups.ContainsKey($hash)) {
-        $dups[$hash] += ,$f.Name
+        $dups[$hash] += ,$rel
     } else {
-        $dups[$hash] = @($f.Name)
+        $dups[$hash] = @($rel)
     }
 }
 $hasDup = $false
@@ -92,9 +109,11 @@ if ($cFiles.Count -eq 0) {
 }
 else {
     foreach ($f in $cFiles) {
-        # path is relative to env\ (the directory containing this include)
-        $lines.Add('#include "../code/' + $f.Name + '"')
-        Write-Host ("[gen_filelist] collected: code\{0}" -f $f.Name) -ForegroundColor Green
+        # path is relative to env\ (the directory containing this include),
+        # and keeps any sub-directory part of the file's location under code\.
+        $rel = Get-RelPath $f.FullName $CodeDir
+        $lines.Add('#include "../code/' + $rel + '"')
+        Write-Host ("[gen_filelist] collected: code\{0}" -f ($rel -replace '/', '\')) -ForegroundColor Green
     }
 }
 

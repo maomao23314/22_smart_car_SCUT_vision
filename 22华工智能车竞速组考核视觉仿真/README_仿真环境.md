@@ -1,4 +1,4 @@
-﻿# 22 届视觉组仿真环境
+# 22 届视觉组仿真环境
 
 > 华南理工大学智能车队 22 届招新 · 竞速组视觉方向
 
@@ -31,11 +31,24 @@
 
 | 方式 | 怎么做 |
 |---|---|
-| **Dev-C++** | 打开 `视觉仿真环境.dev`，按 `F11` |
+| **Dev-C++** | 打开 `视觉仿真环境.dev`，按 `F11`<br>⚠ 新增/删除/改名 `code\` 下的文件后，先双击 `tools\rebuild.bat` |
 | **Visual Studio** | 打开 `VS\visual_simu.sln`，选 `Debug\|x64`，按 `F5`（2017 及以上均可） |
 | **命令行** | 双击 `tools\build_dev.bat`（用 MinGW）<br>双击 `tools\build_vs.bat`（用 VS，自动找任意版本） |
 
 三种方式随便挑一种，效果完全一样。**不需要改任何项目属性。**
+
+> **关于 `tools\rebuild.bat`（只有 Dev-C++ 需要）**
+>
+> `code\` 下的文件是靠 `env\code_filelist.h` 自动收集的，那个文件由脚本生成。
+> **Visual Studio 每次 F5 都会自动重新生成**，命令行脚本每次也会，所以这两条路你什么都不用管。
+>
+> **但 Dev-C++ 没有"编译前执行命令"的功能**，所以按 F11 时它不会重新扫描 `code\`。
+> 症状是：你新建了 `myalgo.c`，按 F11，却报一堆
+> `undefined reference to ...` —— 看起来像代码写错了，其实是新文件没被收录。
+>
+> 这时双击一次 **`tools\rebuild.bat`**，它会重新扫描 `code\` 并清掉过期的中间文件，
+> 然后你照常按 F11 即可。**只有"增删改名文件"这一种情况需要它**，
+> 平时改代码内容直接 F11 就行。
 
 ### 第三步：改代码
 
@@ -82,9 +95,10 @@
 │   ├─ find_msbuild.bat       自动定位任意版本的 MSBuild
 │   ├─ build_dev.bat          命令行编译运行（MinGW）
 │   ├─ build_vs.bat           命令行编译运行（任意版本 VS）
+│   ├─ rebuild.bat            ★ 重扫 code\ + 清理中间文件（Dev-C++ 新增文件后跑一次）
 │   └─ verify_mixed.ps1       验证 C/C++ 混合编译是否正常
 │
-└─ pic\                       测试图集（1~6 组，共 120 张图）
+└─ pic\                       测试图集（1~6 组，共 109 张图）
 ```
 
 ---
@@ -128,9 +142,19 @@ void show_image_data(void)  // ② 用 SCUT_Log 输出数据
 ### 想加新文件？
 
 直接在 `code\` 下新建 `.c` / `.h` 就行，**不用改任何工程设置**。
+**也支持子文件夹**，比如 `code\algo\line.c`，一样会被自动收录。
 
-编译时会自动扫描并收录。VS 里新建的文件也会自动出现在解决方案资源管理器里。
+| 你用哪种方式 | 新建文件后要做什么 |
+|---|---|
+| Visual Studio (F5) | 什么都不用做，每次生成都会自动重扫 |
+| 命令行脚本 | 什么都不用做，脚本会先重扫再编译 |
+| **Dev-C++ (F11)** | **先双击一次 `tools\rebuild.bat`**，然后照常 F11 |
+
 （文件名以 `_` 开头的会被跳过，可以用来临时屏蔽某个文件。）
+
+> 为什么 Dev-C++ 要多一步：它没有"编译前执行命令"的功能，F11 不会重扫 `code\`。
+> VS 工程里有 `DSH_GenFileList` 目标每次自动重跑，命令行脚本里也显式调用了扫描脚本，
+> 只有 Dev-C++ 这条路需要你手动跑一次。
 
 ---
 
@@ -561,9 +585,11 @@ gcc -std=c11 -Wall -Wextra -I code -c code\camera.c -o build\camera.o
 5. 颜色只能用 `SCUT_COLOR_xxx` 或 `SCUT_RGB(r,g,b)`，
    **不要手写十六进制**（宏内部是 `COLORREF` 的 `0x00BBGGRR` 排列，
    手写 `0xFF0000` 会得到蓝色）。
-6. 新增 `.c` / `.h` 放在 `code\` 下即可，由 `env\code_filelist.h`
+6. 新增 `.c` / `.h` 放在 `code\` 下即可（支持子文件夹），由 `env\code_filelist.h`
    自动收集进 `simu_env.c` 编译单元，**不需要修改任何工程文件**
    （`gen_filelist.ps1` 会自动同步 `.dev` 与 VS 工程的文件列表）。
+   ★ 但 Dev-C++ 按 F11 不会触发这个脚本，所以**新增文件后要先跑一次
+   `tools\rebuild.bat`**；VS 的 F5 与命令行脚本都会自动重扫，无需手动。
 
 **编码约定**
 - 源文件一律 `UTF-8 with BOM`。
@@ -659,14 +685,21 @@ gcc -std=c11 -Wall -Wextra -I code -c code\camera.c -o build\camera.o
     `mid_line[90]`，一旦把高度改到 ≤ 90 就是每帧越界读。
     现在用 `SCUT_IMAGE_H / 2`，任何分辨率都安全。
 
-11. **窗口高度只能变大，不能变小。**
-    `SCUT_Log` 在日志变多时会自己 `initgraph` 把窗口加高。
-    如果 `rebuild_window()` 按较小的公式重算高度，就会把窗口缩回去
-    → 日志被裁掉 → `SCUT_Log` 再加高 → **窗口来回跳**。
+11. **窗口高度会跟着日志行数「动态伸缩」，两处公式必须同步。**
+    `SCUT_Log` 在日志变多时会自己 `initgraph` 把窗口加高；
+    而 `rebuild_window()` 会按【当前实际日志行数】重算高度 ——
+    所以日志变少后窗口会**缩回**正常大小（这是刻意设计，
+    避免只是打了两行日志就永久占着 40 行的高度）。
+    具体行为：日志多时窗口变高，日志少时回退。
+
+    ★ 要注意的不是「只增不减」，而是**两个公式必须一致**：
+          SCUT_Log 里        need_h = y + LOG_LINE_H + 60
+          rebuild_window 里  win_h  = log_first_line_y() + log_rows*LOG_LINE_H + 60
+    两边的行数基准都是 `s_log_lines`。若只改一处，就会出现
+    「这边按 N 行算、那边按更多行撑高」→ 窗口来回跳。
     历史上 `rebuild_window` 只预留 `min(SCUT_LOG_MAX_LINES, 12)` 行，
-    而 `SCUT_Log` 能涨到 40 行，差 580px，实测会明显闪。
-    现在两边都按 `SCUT_LOG_MAX_LINES` 全额算，且 `rebuild_window`
-    里加了「高度不允许变小」的保护。**改这两个公式时务必保持同步。**
+    而 `SCUT_Log` 能涨到 40 行，差 580px，实测会明显闪 ——
+    后来把两边统一到同一个基准才修好。**改任一处务必同时改另一处。**
 
 12. **热重载的路径缓冲是 `MAX_PATH`（260）。**
     读图那边用的是 1024 字节缓冲。路径长于 260 时读图会成功，
@@ -676,7 +709,10 @@ gcc -std=c11 -Wall -Wextra -I code -c code\camera.c -o build\camera.o
     截断时直接放弃监测（宁可没有联动，也不要卡死）。
 
 **验证方式**
-- 改完建议跑 `tools\verify_mixed.ps1`（应输出 8 项 PASS）。
+- 改完建议跑 `tools\verify_mixed.ps1`（完整环境应输出 8 项 PASS）。
+  它用 vswhere 自动定位任意版本的 Visual Studio；**若本机没装 VS，
+  MSVC 那半会被跳过，脚本会明确报告「只验证了 MinGW 部分」并以
+  退出码 2 结束**，不会假装全部通过。
 - 两个工具链都要能编过：
   `tools\build_dev.bat norun` 和 `tools\build_vs.bat norun`。
 - 改过 `code\` 后，验证「还能不能上单片机」：
@@ -693,7 +729,7 @@ gcc -std=c11 -Wall -Wextra -I code -c code\camera.c -o build\camera.o
 | 窗口显示一张渐变图 | 图片没读到，检查 `config.h` 的 `SCUT_PIC_DIR` / `SCUT_PIC_EXT` |
 | 中文显示成乱码 | 源文件必须 `UTF-8 with BOM`，不要存成 ANSI |
 | 找不到 `easyx.h` | 装 EasyX（见第七节） |
-| 自己加的 `.c` 没被编译 | 跑一次 `一键配置.bat`；文件名不要以 `_` 开头 |
+| 自己加的 `.c` 没被编译 | 先看文件名是不是以 `_` 开头；否则是 Dev-C++ 没重扫 —— 跑一次 `tools\rebuild.bat` 再 F11（VS / 命令行不用手动跑） |
 | **画出来颜色不对（红蓝反了）** | 别手写十六进制颜色，用 `SCUT_COLOR_xxx` 或 `SCUT_RGB(r,g,b)`。见第四节「绘图」的说明 |
 | **改了输出尺寸/ROI，算法读不到图** | 输出用 `SCUT_OutImageSet/Get`，坐标相对显示区域；不要直接用 `output_image[y][x]` |
 | **编译报 `scut_out_roi_check` 负数组** | `X + W` 超过 `SCUT_IMAGE_W`，或 `Y + H` 超过 `SCUT_IMAGE_H`，改 `config.h` |

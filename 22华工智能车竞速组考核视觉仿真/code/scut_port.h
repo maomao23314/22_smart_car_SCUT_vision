@@ -63,14 +63,60 @@
 *
 *   而把 code\ 单独拷到单片机工程时，没有仿真环境的头文件，
 *   这些 #ifndef 就会生效，本文件成为唯一来源 —— 两边都能编过。
+*
+* ★★ 包含顺序无关性（重要，2026 修订）★★
+*
+*   老写法是「看环境头文件的 include guard 有没有被定义过」来判断自己在哪：
+*       #if defined(_scut_display_h_) || defined(_scut_common_typedef_h_)
+*   这个判断的答案【取决于谁先被包含】，是靠约定而不是靠机制成立的：
+*   它只有在「环境头文件已经先包含进来了」时才为真。
+*
+*   一旦有人改了包含顺序（例如某个 code\*.c 自己先碰了本文件、
+*   或 env\simu_env.c 里调整了 #include 的先后），判断就会翻转成
+*   「独立模式」，于是本文件会自己再定义一遍 uint8 / 颜色宏 /
+*   scut_log_level_enum，而环境头文件随后再定义一遍 ——
+*   报错是 redefinition of 'scut_log_level_enum'，
+*   或者反方向的一片 undefined identifier，
+*   报错位置和真正的原因（包含顺序）毫无关系，极难排查。
+*
+*   现在的做法：本文件主动去【探测环境头文件在不在】，在的话就地包含它。
+*   这样无论谁先谁后、无论 code\ 下有几十个文件怎么互相包含，
+*   答案都一致 —— 判断从「碰巧成立」变成「机制保证」。
+*
+*   探测用 __has_include（C11 起 GCC/Clang/MSVC 都支持），
+*   并用 __has_include 自身是否存在做兜底（很老的编译器）。
+*   单片机工程里根本没有 scut_display.h，探测自然失败，
+*   于是走独立模式 —— 行为与原来完全一致。
 ********************************************************************************************************************/
 
-/* 只要环境侧的头文件在场，就让它们当唯一来源 */
-#if defined(_scut_display_h_) || defined(_scut_common_typedef_h_)
+/*-------------------------------------------------------------------------------------------------------------------
+* 探测「仿真环境的头文件是否可达」
+* 说明：可达 → 就地包含，让环境侧当唯一来源（同时 SCUT_PORT_STANDALONE = 0）
+*       不可达 → 独立模式，本文件成为唯一来源（SCUT_PORT_STANDALONE = 1）
+* 备注：用户若在自己的工程里提供了同名头文件却被误判，可提前定义
+*       SCUT_PORT_FORCE_STANDALONE 强制走独立模式。
+*-----------------------------------------------------------------------------------------------------------------*/
+#if !defined(SCUT_PORT_STANDALONE)
+#if !defined(SCUT_PORT_FORCE_STANDALONE) && defined(__has_include)
+#  if __has_include("scut_display.h") && __has_include("scut_common_typedef.h")
+#    define SCUT_PORT_HAS_ENV_HEADERS   (1)
+#  else
+#    define SCUT_PORT_HAS_ENV_HEADERS   (0)
+#  endif
+#else
+#  define SCUT_PORT_HAS_ENV_HEADERS       (0)
+#endif
+
+#if SCUT_PORT_HAS_ENV_HEADERS
+/* 主动包含，而不是被动等别人先包含 —— 这一句就是「顺序无关」的关键。
+ * 头文件自带 include guard，重复包含无副作用。 */
+#include "scut_common_typedef.h"
+#include "scut_display.h"
 #define SCUT_PORT_STANDALONE            (0)                                     // 0 = 跑在仿真环境里
 #else
 #define SCUT_PORT_STANDALONE            (1)                                     // 1 = 独立（单片机/裸机）
 #endif
+#endif /* !SCUT_PORT_STANDALONE */
 
 /*********************************************************************************************************************
 * 基础类型
@@ -78,10 +124,7 @@
 *       若那边已经定义过，在这里定义 SCUT_PORT_HAS_TYPES 即可避免重复定义。
 ********************************************************************************************************************/
 #ifndef SCUT_PORT_HAS_TYPES
-#ifdef _scut_common_typedef_h_
-/* 仿真环境已经给了 uint8 等类型，直接用，不重复定义 */
-#define SCUT_PORT_HAS_TYPES             (1)
-#else
+#if SCUT_PORT_STANDALONE
 #include <stdint.h>
 
 typedef unsigned char           uint8;
@@ -90,6 +133,9 @@ typedef unsigned short          uint16;
 typedef signed short            int16;
 typedef unsigned int            uint32;
 typedef signed int              int32;
+#define SCUT_PORT_HAS_TYPES             (1)
+#else
+/* 仿真环境已经给了 uint8 等类型，直接用，不重复定义 */
 #define SCUT_PORT_HAS_TYPES             (1)
 #endif
 #endif /* SCUT_PORT_HAS_TYPES */
@@ -135,7 +181,13 @@ extern uint8 mt9v03x_image[SCUT_IMAGE_H][SCUT_IMAGE_W];
 *   重则两份悄悄不一致（比如环境里是红、单车上变成蓝）。
 *   所以让环境在场时整段跳过，颜色永远只有一份定义来源。
 ********************************************************************************************************************/
-#if SCUT_PORT_STANDALONE && !defined(SCUT_PORT_HAS_COLORS)
+/* ★ 这里的条件用「颜色宏是否已存在」而不是只看 SCUT_PORT_STANDALONE：
+ *   SCUT_PORT_STANDALONE 现在由 __has_include 探测得出，二者已经一致；
+ *   但只要用户提前定义了 SCUT_PORT_HAS_COLORS（车载工程常见），
+ *   或环境侧已经给过 SCUT_COLOR_RED，本节就必须整段跳过。
+ *   多这一重 SCUT_COLOR_RED 判断，可以兜住「头文件可达但被条件编译挡住」
+ *   之类的边角情况，避免重定义。 */
+#if SCUT_PORT_STANDALONE && !defined(SCUT_PORT_HAS_COLORS) && !defined(SCUT_COLOR_RED)
 #define SCUT_RGB(r, g, b)           ((unsigned int)(((unsigned char)(r))        \
                                      | (((unsigned int)(unsigned char)(g)) << 8) \
                                      | (((unsigned int)(unsigned char)(b)) << 16)))
@@ -156,7 +208,7 @@ extern uint8 mt9v03x_image[SCUT_IMAGE_H][SCUT_IMAGE_W];
 #define SCUT_COLOR_LIGHTBLUE        SCUT_RGB(0x66, 0xCC, 0xFF)                  // 浅蓝
 #define SCUT_COLOR_PINK             SCUT_RGB(0xFE, 0x19, 0xFE)                  // 粉色
 #define SCUT_COLOR_39C5BB           SCUT_RGB(0x39, 0xC5, 0xBB)                  // 初音绿
-#endif /* SCUT_PORT_STANDALONE && !SCUT_PORT_HAS_COLORS */
+#endif /* SCUT_PORT_STANDALONE && !SCUT_PORT_HAS_COLORS && !SCUT_COLOR_RED */
 
 /*********************************************************************************************************************
 * 输出图像尺寸（★ 由 config.h 决定）
@@ -171,6 +223,33 @@ extern uint8 mt9v03x_image[SCUT_IMAGE_H][SCUT_IMAGE_W];
 * 移植到单片机时：算法只需要一个「画在哪」的目标缓冲，
 *                 把这几个宏按你的屏幕尺寸改一下就行，
 *                 并在你的工程里提供 SCUT_OutImageSet / SCUT_DrawPoint 的实现。
+*
+* ★★ 这里为什么【不能】只靠 #ifndef，也不能整节跳过（重要）★★
+*
+*   本节要同时满足两个要求，两者都踩过坑：
+*
+*   要求一：code\\*.c 先于 config.h 被包含时，这几个宏也必须存在。
+*     有人调整包含顺序（或 env\\simu_env.c 里改了 #include 的先后）后，
+*     SCUT_OUT_IMAGE_W 会变成未定义，报错是
+*         error: 'SCUT_OUT_IMAGE_W' undeclared
+*     而报错位置在用户的 camera.c 里，看着像是算法写错了，
+*     实际是包含顺序问题 —— 极难排查。所以兜底定义必须一直在。
+*
+*   要求二：不能和 config.h 的定义打架。
+*     config.h 里写的是   #define SCUT_OUT_IMAGE_X   0
+*     而早期兜底写的是     #define SCUT_OUT_IMAGE_X   (0)
+*     两者字面量【不同】（有无括号），#ifndef 挡不住，于是报
+*         warning: "SCUT_OUT_IMAGE_X" redefined
+*     替换后的值其实一样，属于纯噪声警告，但会淹没真正的告警。
+*
+*   ★ 解决办法：兜底定义与 config.h 采用【完全相同的字面量写法】，
+*     于是无论谁先谁后，两份定义都逐字相同 ——
+*     按 C 标准，相同重定义是合法的，不报错也不警告；
+*     而宏本身又永远存在，不会出现 undeclared。
+*     两个要求同时满足。
+*
+*   注意：改这里的任何一个值，都必须同步改 config.h 里对应那一行，
+*         否则「相同重定义」的前提被破坏，warning 会立刻回来。
 ********************************************************************************************************************/
 #ifndef SCUT_OUT_IMAGE_W
 #define SCUT_OUT_IMAGE_W            SCUT_IMAGE_W                                // 输出宽度（默认整幅）
@@ -179,10 +258,10 @@ extern uint8 mt9v03x_image[SCUT_IMAGE_H][SCUT_IMAGE_W];
 #define SCUT_OUT_IMAGE_H            SCUT_IMAGE_H                                // 输出高度（默认整幅）
 #endif
 #ifndef SCUT_OUT_IMAGE_X
-#define SCUT_OUT_IMAGE_X            (0)                                         // 输出起点列
+#define SCUT_OUT_IMAGE_X            0                                           // 输出起点列
 #endif
 #ifndef SCUT_OUT_IMAGE_Y
-#define SCUT_OUT_IMAGE_Y            (0)                                         // 输出起点行
+#define SCUT_OUT_IMAGE_Y            0                                           // 输出起点行
 #endif
 
 /*********************************************************************************************************************

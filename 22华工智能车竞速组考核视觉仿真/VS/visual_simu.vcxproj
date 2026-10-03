@@ -138,6 +138,10 @@
       <CompileAs>CompileAsC</CompileAs>
       <ExcludedFromBuild>true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="..\code\perspective.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <ExcludedFromBuild>true</ExcludedFromBuild>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\config.h" />
@@ -147,6 +151,7 @@
     <ClInclude Include="..\env\scut_display.h" />
     <ClInclude Include="..\env\code_filelist.h" />
     <ClInclude Include="..\code\camera.h" />
+    <ClInclude Include="..\code\perspective.h" />
     <ClInclude Include="..\code\scut_port.h" />
   </ItemGroup>
   <!-- ==== END AUTO-GENERATED ITEMS ==== -->
@@ -178,11 +183,20 @@
 
   <Target Name="DSH_GenFileList" BeforeTargets="PrepareForBuild"
           Condition="'$(DesignTimeBuild)' != 'true'">
+    <!-- ContinueOnError is deliberately NOT "true" here.
+         If gen_filelist.ps1 fails (PowerShell execution policy, constrained
+         language mode, a broken script...), silently continuing would compile
+         against a STALE code_filelist.h, and the build would then fail with
+         misleading linker errors ("undefined reference to image_process")
+         that point nowhere near the real cause. Fail fast instead. -->
     <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\tools\gen_filelist.ps1&quot;"
-          ContinueOnError="true" />
+          ContinueOnError="false" />
 
     <ItemGroup>
-      <_DSHCode Include="$(ProjectDir)..\code\*.c" />
+      <!-- Recursive: must match gen_filelist.ps1 / sync_vs_items.ps1, which both
+           scan code\ recursively, so that adding a file in a sub-directory
+           forces simu_env.obj to be rebuilt just like a top-level one. -->
+      <_DSHCode Include="$(ProjectDir)..\code\**\*.c" />
     </ItemGroup>
     <PropertyGroup>
       <_DSHSnap>@(_DSHCode->'%(Filename)')</_DSHSnap>

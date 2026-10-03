@@ -1,7 +1,7 @@
 [Project]
 FileName=视觉仿真环境.dev
 Name=视觉仿真环境
-UnitCount=13
+UnitCount=15
 Type=0
 Ver=2
 ObjFiles=
@@ -170,7 +170,7 @@ DetectEncoding=0
 Encoding=0
 
 [Unit12]
-FileName=code\scut_port.h
+FileName=code\perspective.h
 CompileCpp=1
 Folder=
 Compile=0
@@ -182,7 +182,31 @@ DetectEncoding=0
 Encoding=0
 
 [Unit13]
+FileName=code\scut_port.h
+CompileCpp=1
+Folder=
+Compile=0
+Link=0
+Priority=1000
+OverrideBuildCmd=0
+BuildCmd=
+DetectEncoding=0
+Encoding=0
+
+[Unit14]
 FileName=code\camera.c
+CompileCpp=0
+Folder=
+Compile=0
+Link=0
+Priority=1000
+OverrideBuildCmd=0
+BuildCmd=
+DetectEncoding=0
+Encoding=0
+
+[Unit15]
+FileName=code\perspective.c
 CompileCpp=0
 Folder=
 Compile=0

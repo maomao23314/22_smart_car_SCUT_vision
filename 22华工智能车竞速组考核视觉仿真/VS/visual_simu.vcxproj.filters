@@ -27,6 +27,9 @@
     <ClCompile Include="..\code\camera.c">
       <Filter>code</Filter>
     </ClCompile>
+    <ClCompile Include="..\code\perspective.c">
+      <Filter>code</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\config.h">
@@ -51,6 +54,9 @@
       <Filter>env</Filter>
     </ClInclude>
     <ClInclude Include="..\code\camera.h">
+      <Filter>code</Filter>
+    </ClInclude>
+    <ClInclude Include="..\code\perspective.h">
       <Filter>code</Filter>
     </ClInclude>
     <ClInclude Include="..\code\scut_port.h">

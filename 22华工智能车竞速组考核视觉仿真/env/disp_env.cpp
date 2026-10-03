@@ -469,10 +469,105 @@ static int dir_exists(const char* rel)
 }
 
 /*-------------------------------------------------------------------------------------------------------------------
+* 函数简介     把 SCUT_PIC_EXT 拆成后缀数组
+* 参数说明     exts            输出：后缀字符串数组（含点 例如 ".bmp"）
+* 参数说明     max_exts        exts 能放多少个
+* 返回参数     实际拆出多少个后缀
+* 备注信息     ★ 支持一次配多个后缀，用逗号或分号分隔，例如
+*                  ".bmp,.png,.jpg"
+*              也支持写成不带点的形式（"bmp,png"），会自动补上点。
+*              为什么要支持多个：图集可能是混着的 —— 有些是 bmp、
+*              有些是 png，或者换了一批图但后缀不一样。
+*              配多个后缀时按顺序优先匹配，第一个找到的就算。
+*-----------------------------------------------------------------------------------------------------------------*/
+#define PIC_MAX_EXTS                (8)
+#define PIC_EXT_LEN                 (16)
+
+static int parse_pic_exts(char exts[PIC_MAX_EXTS][PIC_EXT_LEN], int max_exts)
+{
+    const char* p = SCUT_PIC_EXT;
+    int         n = 0;
+
+    while (*p != '\0' && n < max_exts)
+    {
+        char buf[PIC_EXT_LEN];
+        int  k = 0;
+
+        /* 跳过前导分隔符与空白 */
+        while (*p == ',' || *p == ';' || *p == ' ' || *p == '\t') { p++; }
+        if (*p == '\0') { break; }
+
+        /* 收集到下一个分隔符为止 */
+        while (*p != '\0' && *p != ',' && *p != ';' &&
+               *p != ' ' && *p != '\t' && k < PIC_EXT_LEN - 2)
+        {
+            buf[k++] = *p++;
+        }
+        buf[k] = '\0';
+        if (k == 0) { continue; }
+
+        /* 没写点的话自动补一个：bmp -> .bmp
+         * 这样用户写 "bmp" 或 ".bmp" 都对，少一个坑。 */
+        if (buf[0] == '.')
+        {
+            snprintf(exts[n], PIC_EXT_LEN, "%s", buf);
+        }
+        else
+        {
+            snprintf(exts[n], PIC_EXT_LEN, ".%s", buf);
+        }
+        n++;
+    }
+
+    /* 一个都没配出来就退回默认，保证后面逻辑永远有个可用后缀 */
+    if (n == 0)
+    {
+        snprintf(exts[0], PIC_EXT_LEN, ".bmp");
+        n = 1;
+    }
+    return n;
+}
+
+/*-------------------------------------------------------------------------------------------------------------------
+* 函数简介     在某个图集目录里找编号为 no 的图片，自动匹配后缀
+* 参数说明     dir             图集目录
+* 参数说明     no              图片编号
+* 参数说明     out             输出：命中的完整（相对）路径
+* 参数说明     out_size        out 的字节数
+* 返回参数     1 = 找到 0 = 没找到
+* 备注信息     ★ 逐个后缀去试文件是否存在，命中即返回。
+*              这样图集里放 bmp 还是 png 都能读，不用去改 config.h。
+*              也顺便兼容了「同一组里后缀混着」的情况。
+*-----------------------------------------------------------------------------------------------------------------*/
+static int find_picture(const char* dir, int no, char* out, size_t out_size)
+{
+    char exts[PIC_MAX_EXTS][PIC_EXT_LEN];
+    int  n = parse_pic_exts(exts, PIC_MAX_EXTS);
+    int  i;
+
+    for (i = 0; i < n; i++)
+    {
+        snprintf(out, out_size, "%s/%d%s", dir, no, exts[i]);
+        if (GetFileAttributesA(out) != INVALID_FILE_ATTRIBUTES)
+        {
+            return 1;
+        }
+    }
+
+    out[0] = '\0';
+    return 0;
+}
+
+/*-------------------------------------------------------------------------------------------------------------------
 * 函数简介     从文件加载图像到 mt9v03x_image（转灰度）
 * 参数说明     filename        相对路径 例如 "pic/1/1.bmp"
 * 返回参数     1 = 成功 0 = 失败
-* 备注信息     工作目录已经在 SCUT_EnvInit 里切到工程根目录 这里直接用相对路径
+* 备注信息     ★ 读图本身由 EasyX 的 loadimage 完成，它按【文件内容】
+*              判断格式，不看后缀 —— 所以 bmp / png / jpg / gif / tif
+*              等常见格式都能直接读，不需要改任何代码。
+*              我们唯一要做的是"先找到文件名"，见 find_picture()。
+*
+*              工作目录已经在 SCUT_EnvInit 里切到工程根目录 这里直接用相对路径
 *-----------------------------------------------------------------------------------------------------------------*/
 static int load_image_to_array(const char* filename)
 {
@@ -515,29 +610,42 @@ static int load_image_to_array(const char* filename)
 * 参数说明     dir             图集文件夹（相对路径）
 * 返回参数     图片张数 0 = 不存在或为空
 * 备注信息     文件名是 1..N 的连续编号 最大值就是张数
+*
+* ★ 现在会扫描【所有配置的后缀】，而不是只扫 SCUT_PIC_EXT 那一个。
+*   否则图集里混着 bmp/png 时，另一种格式的图会被漏掉，
+*   张数统计偏小，翻页会提前跳到下一组。
+*   同一个编号出现多个后缀时取最大编号，不影响结果（编号本来就要连续）。
 *-----------------------------------------------------------------------------------------------------------------*/
 static int count_images(const char* dir)
 {
-    char   pattern[MAX_PATH];
+    char   exts[PIC_MAX_EXTS][PIC_EXT_LEN];
+    int    n = parse_pic_exts(exts, PIC_MAX_EXTS);
     int    max_no = 0;
-    WIN32_FIND_DATAA fd;
-    HANDLE h;
+    int    e;
 
-    snprintf(pattern, sizeof(pattern), "%s/*%s", dir, SCUT_PIC_EXT);
-
-    h = FindFirstFileA(pattern, &fd);
-    if (h == INVALID_HANDLE_VALUE) { return 0; }
-
-    do
+    for (e = 0; e < n; e++)
     {
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) { continue; }
-        {
-            int n = atoi(fd.cFileName);
-            if (n > max_no) { max_no = n; }
-        }
-    } while (FindNextFileA(h, &fd));
+        char   pattern[MAX_PATH];
+        WIN32_FIND_DATAA fd;
+        HANDLE h;
 
-    FindClose(h);
+        snprintf(pattern, sizeof(pattern), "%s/*%s", dir, exts[e]);
+
+        h = FindFirstFileA(pattern, &fd);
+        if (h == INVALID_HANDLE_VALUE) { continue; }
+
+        do
+        {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) { continue; }
+            {
+                int no = atoi(fd.cFileName);
+                if (no > max_no) { max_no = no; }
+            }
+        } while (FindNextFileA(h, &fd));
+
+        FindClose(h);
+    }
+
     return max_no;
 }
 
@@ -673,7 +781,12 @@ static void load_image_ex(int keep_monitor)
 
     if (!s_past_end && s_set_dir[0] != '\0')
     {
-        snprintf(filename, sizeof(filename), "%s/%d%s", s_set_dir, s_now_pic, SCUT_PIC_EXT);
+        /* 不再拼死一个后缀，而是把所有配置的后缀挨个试一遍，
+         * 命中哪个用哪个 —— 于是 bmp / png / jpg ... 都能读。 */
+        if (!find_picture(s_set_dir, s_now_pic, filename, sizeof(filename)))
+        {
+            filename[0] = '\0';
+        }
     }
 
     if (filename[0] != '\0' && load_image_to_array(filename))
@@ -689,7 +802,8 @@ static void load_image_ex(int keep_monitor)
         return;
     }
 
-    printf("生成渐变图（图片读取失败，请检查 config.h 的 SCUT_PIC_DIR / SCUT_PIC_EXT）\n");
+    printf("生成渐变图（图片读取失败，请检查 config.h 的 SCUT_PIC_DIR / SCUT_PIC_EXT，"
+           "注意图片编号要从 1 开始连续编号）\n");
     s_cur_file[0] = '\0';
     SCUT_HotReloadInit(NULL);
     for (y = 0; y < SCUT_IMAGE_H; y++)
@@ -1066,7 +1180,7 @@ void SCUT_EnvProcessImage(void)
     s_log_enabled = 1;
     QueryPerformanceCounter(&t0);
     c0 = tsc_read();
-    image_process();
+    SCUT_USER_PROCESS_FUNC();
     c1 = tsc_read();
     QueryPerformanceCounter(&t1);
 
@@ -1078,7 +1192,7 @@ void SCUT_EnvProcessImage(void)
         s_log_enabled = 0;
         QueryPerformanceCounter(&t2);
         c2 = tsc_read();
-        for (i = 1; i < s_repeat; i++) { image_process(); }
+        for (i = 1; i < s_repeat; i++) { SCUT_USER_PROCESS_FUNC(); }
         c3 = tsc_read();
         QueryPerformanceCounter(&t3);
         s_log_enabled = 1;

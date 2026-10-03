@@ -159,6 +159,13 @@ echo.
 echo   Your code goes in code\ - new .c/.h files are picked up
 echo   automatically, no need to edit any project file.
 echo.
+echo   IMPORTANT (Dev-C++ users): Dev-C++ has no pre-build step, so
+echo   pressing F11 does NOT rescan code\. After adding/removing a
+echo   .c or .h under code\, run once:
+echo       tools\rebuild.bat
+echo   then press F11 as usual. (Visual Studio does this by itself
+echo   on every F5, and this setup script just did it for you too.)
+echo.
 echo   Hot reload: save a new version of the image the environment is
 echo   currently showing (e.g. from the image editor) and it reloads
 echo   and re-runs by itself. Press H in the window to toggle it.

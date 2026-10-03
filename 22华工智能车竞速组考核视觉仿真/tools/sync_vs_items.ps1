@@ -31,13 +31,22 @@ if (-not (Test-Path $Proj)) { Write-Host "[sync_vs] no VS project, skipping" -Fo
 if (-not (Test-Path $Filt)) { Write-Host "[sync_vs] no filters file, skipping" -ForegroundColor Yellow; exit 0 }
 
 # --- collect user sources under code\ ---------------------------------------
+# NOTE: -Recurse and the '*.tmp' filter MUST match gen_filelist.ps1, otherwise
+# the files that get COMPILED and the files shown in Solution Explorer differ.
+# Paths are kept RELATIVE to code\ (forward slashes -> backslashes for MSBuild)
+# so that sub-directories work: code\algo\line.c -> ..\code\algo\line.c
 $userC = @()
 $userH = @()
 if (Test-Path $Code) {
-    $userC = @(Get-ChildItem -Path $Code -Filter '*.c' -File -ErrorAction SilentlyContinue |
-               Where-Object { $_.Name -notlike '_*' } | Sort-Object Name)
-    $userH = @(Get-ChildItem -Path $Code -Filter '*.h' -File -ErrorAction SilentlyContinue |
-               Where-Object { $_.Name -notlike '_*' } | Sort-Object Name)
+    $userC = @(Get-ChildItem -Path $Code -Filter '*.c' -Recurse -File -ErrorAction SilentlyContinue |
+               Where-Object { $_.Name -notlike '_*' -and $_.Name -notlike '*.tmp' } | Sort-Object FullName)
+    $userH = @(Get-ChildItem -Path $Code -Filter '*.h' -Recurse -File -ErrorAction SilentlyContinue |
+               Where-Object { $_.Name -notlike '_*' -and $_.Name -notlike '*.tmp' } | Sort-Object FullName)
+}
+
+# relative path under code\, with backslashes (MSBuild item paths)
+function Get-Rel([string]$full, [string]$baseDir) {
+    return ($full.Substring($baseDir.Length).TrimStart('\', '/') -replace '/', '\')
 }
 
 $nl = "`r`n"
@@ -56,7 +65,7 @@ $compileItems.Add('    </ClCompile>')
 #       items added by this script during a build are too late for MSBuild to
 #       compile them (would break the first build after a fresh checkout).
 foreach ($f in $userC) {
-    $compileItems.Add('    <ClCompile Include="..\code\' + $f.Name + '">')
+    $compileItems.Add('    <ClCompile Include="..\code\' + (Get-Rel $f.FullName $Code) + '">')
     $compileItems.Add('      <CompileAs>CompileAsC</CompileAs>')
     # already pulled in via code_filelist.h -> do not compile twice
     $compileItems.Add('      <ExcludedFromBuild>true</ExcludedFromBuild>')
@@ -72,7 +81,7 @@ $includeItems.Add('    <ClInclude Include="..\env\scut_common_typedef.h" />')
 $includeItems.Add('    <ClInclude Include="..\env\scut_display.h" />')
 $includeItems.Add('    <ClInclude Include="..\env\code_filelist.h" />')
 foreach ($f in $userH) {
-    $includeItems.Add('    <ClInclude Include="..\code\' + $f.Name + '" />')
+    $includeItems.Add('    <ClInclude Include="..\code\' + (Get-Rel $f.FullName $Code) + '" />')
 }
 
 $newGroups = '  <!-- ==== BEGIN AUTO-GENERATED ITEMS (tools\sync_vs_items.ps1) ==== -->' + $nl +
@@ -133,7 +142,7 @@ $filtLines.Add('    <ClCompile Include="..\env\hot_reload.c">')
 $filtLines.Add('      <Filter>env</Filter>')
 $filtLines.Add('    </ClCompile>')
 foreach ($f in $userC) {
-    $filtLines.Add('    <ClCompile Include="..\code\' + $f.Name + '">')
+    $filtLines.Add('    <ClCompile Include="..\code\' + (Get-Rel $f.FullName $Code) + '">')
     $filtLines.Add('      <Filter>code</Filter>')
     $filtLines.Add('    </ClCompile>')
 }
@@ -161,7 +170,7 @@ $filtLines.Add('    <ClInclude Include="..\env\code_filelist.h">')
 $filtLines.Add('      <Filter>env</Filter>')
 $filtLines.Add('    </ClInclude>')
 foreach ($f in $userH) {
-    $filtLines.Add('    <ClInclude Include="..\code\' + $f.Name + '">')
+    $filtLines.Add('    <ClInclude Include="..\code\' + (Get-Rel $f.FullName $Code) + '">')
     $filtLines.Add('      <Filter>code</Filter>')
     $filtLines.Add('    </ClInclude>')
 }

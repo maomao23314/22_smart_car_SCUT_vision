@@ -56,13 +56,20 @@ if ($vi -lt 0) { Write-Host "[sync_dev] no [VersionInfo] section found, skipping
 $footer = $text.Substring($vi)
 
 # --- collect code\ files -----------------------------------------------------
+# NOTE: -Recurse and the '*.tmp' filter MUST match gen_filelist.ps1, otherwise
+# the files that get COMPILED and the files shown in the IDE project tree differ.
 $userC = @()
 $userH = @()
 if (Test-Path $CodeDir) {
-    $userC = @(Get-ChildItem -Path $CodeDir -Filter '*.c' -File -ErrorAction SilentlyContinue |
-               Where-Object { $_.Name -notlike '_*' -and $_.Name -notlike '*.tmp' } | Sort-Object Name)
-    $userH = @(Get-ChildItem -Path $CodeDir -Filter '*.h' -File -ErrorAction SilentlyContinue |
-               Where-Object { $_.Name -notlike '_*' -and $_.Name -notlike '*.tmp' } | Sort-Object Name)
+    $userC = @(Get-ChildItem -Path $CodeDir -Filter '*.c' -Recurse -File -ErrorAction SilentlyContinue |
+               Where-Object { $_.Name -notlike '_*' -and $_.Name -notlike '*.tmp' } | Sort-Object FullName)
+    $userH = @(Get-ChildItem -Path $CodeDir -Filter '*.h' -Recurse -File -ErrorAction SilentlyContinue |
+               Where-Object { $_.Name -notlike '_*' -and $_.Name -notlike '*.tmp' } | Sort-Object FullName)
+}
+
+# relative path under code\, with backslashes (.dev uses Windows-style paths)
+function Get-Rel([string]$full, [string]$baseDir) {
+    return ($full.Substring($baseDir.Length).TrimStart('\', '/') -replace '/', '\')
 }
 
 # --- build the new unit list -------------------------------------------------
@@ -104,11 +111,11 @@ $n++; $body.Add((UnitBlock $n 'env\scut_display.h' $true $false $false))
 $n++; $body.Add((UnitBlock $n 'env\scut_common_typedef.h' $true $false $false))
 # user headers (display only)
 foreach ($f in $userH) {
-    $n++; $body.Add((UnitBlock $n ('code\' + $f.Name) $true $false $false))
+    $n++; $body.Add((UnitBlock $n ('code\' + (Get-Rel $f.FullName $CodeDir)) $true $false $false))
 }
 # user sources : Compile=0 -- they are compiled via code_filelist.h
 foreach ($f in $userC) {
-    $n++; $body.Add((UnitBlock $n ('code\' + $f.Name) $false $false $false))
+    $n++; $body.Add((UnitBlock $n ('code\' + (Get-Rel $f.FullName $CodeDir)) $false $false $false))
 }
 
 $newText = $header + (($body) -join '') + $footer

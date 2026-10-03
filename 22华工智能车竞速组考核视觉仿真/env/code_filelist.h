@@ -13,5 +13,6 @@
 #define CODE_FILELIST_H
 
 #include "../code/camera.c"
+#include "../code/perspective.c"
 
 #endif /* CODE_FILELIST_H */
