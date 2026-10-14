@@ -48,7 +48,7 @@ if not os.path.isfile(VENV_PY):
 
 # 自动定位一张测试图（仿真环境文件夹名可能被改）
 _src_img = ""
-for cand in ("22华工智能车竞速组考核视觉仿真", "22th_visual_simu"):
+for cand in ("Liumian-SimuEnv", "22华工智能车竞速组考核视觉仿真", "22th_visual_simu"):
     p = os.path.join(ROOT, cand, "pic", "1", "1.bmp")
     if os.path.isfile(p):
         _src_img = p

@@ -25,7 +25,7 @@ ROOT = os.path.dirname(HERE)
 
 # 自动定位仿真环境目录（文件夹名可能被改）
 SIM_DIR = ""
-for cand in ("22华工智能车竞速组考核视觉仿真", "22th_visual_simu"):
+for cand in ("Liumian-SimuEnv", "22华工智能车竞速组考核视觉仿真", "22th_visual_simu"):
     p = os.path.join(ROOT, cand)
     if os.path.isdir(p):
         SIM_DIR = p

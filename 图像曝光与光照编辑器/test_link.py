@@ -31,10 +31,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
 # 仿真环境文件夹名可能被改，这里自动找：
-#   仓库布局：<仓库根>\22华工智能车竞速组考核视觉仿真\
+#   仓库布局：<仓库根>\Liumian-SimuEnv\
+#   旧布局：  <仓库根>\22华工智能车竞速组考核视觉仿真\
 #   开发布局：<上级>\22th_visual_simu\
 SIM_DIR = ""
-for cand in ("22华工智能车竞速组考核视觉仿真", "22th_visual_simu"):
+for cand in ("Liumian-SimuEnv", "22华工智能车竞速组考核视觉仿真", "22th_visual_simu"):
     p = os.path.join(ROOT, cand)
     if os.path.isdir(p):
         SIM_DIR = p
@@ -42,7 +43,7 @@ for cand in ("22华工智能车竞速组考核视觉仿真", "22th_visual_simu")
 
 if not SIM_DIR:
     print("FAIL: 找不到仿真环境文件夹")
-    print("      期望其一: 22华工智能车竞速组考核视觉仿真 / 22th_visual_simu")
+    print("      期望其一: Liumian-SimuEnv / 22华工智能车竞速组考核视觉仿真 / 22th_visual_simu")
     sys.exit(1)
 
 
@@ -141,7 +142,7 @@ print("=" * 60)
 
 if SIM_EXE is None:
     print("FAIL: 找不到仿真环境 exe，请先编译：")
-    print("      进 22华工智能车竞速组考核视觉仿真\\，双击 一键配置.bat")
+    print("      进 Liumian-SimuEnv\\，双击 一键配置.bat")
     print("      或跑 tools\\build_dev.bat（输出到 build\\）")
     sys.exit(1)
 if not os.path.isfile(TARGET):
